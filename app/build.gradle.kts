@@ -1,4 +1,6 @@
+import java.util.Calendar
 import java.util.Properties
+import java.util.TimeZone
 
 plugins {
     alias(libs.plugins.android.application)
@@ -19,12 +21,12 @@ android {
         targetSdk = 34
         // 版本号格式: versionName=YY.M.D，versionCode=YYMMDDHH
         // 年份取后两位，使用中国时区(Asia/Shanghai)
-        val tz = java.util.TimeZone.getTimeZone("Asia/Shanghai")
-        val now = java.util.Calendar.getInstance(tz)
-        val year = now.get(java.util.Calendar.YEAR) % 100
-        val month = now.get(java.util.Calendar.MONTH) + 1
-        val day = now.get(java.util.Calendar.DAY_OF_MONTH)
-        val hour = now.get(java.util.Calendar.HOUR_OF_DAY)
+        val tz = TimeZone.getTimeZone("Asia/Shanghai")
+        val now = Calendar.getInstance(tz)
+        val year = now.get(Calendar.YEAR) % 100
+        val month = now.get(Calendar.MONTH) + 1
+        val day = now.get(Calendar.DAY_OF_MONTH)
+        val hour = now.get(Calendar.HOUR_OF_DAY)
         versionCode = year * 1000000 + month * 10000 + day * 100 + hour
         versionName = "$year.$month.$day"
 
