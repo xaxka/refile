@@ -320,44 +320,47 @@ private fun SelectedMediaSummary(
 
 @Composable
 private fun MediaSearchSection(
+    modifier: Modifier = Modifier,
     query: String,
     results: List<MediaCandidate>,
     loading: Boolean,
     onSearch: (String) -> Unit,
     onSelect: (MediaCandidate) -> Unit,
 ) {
-    // 搜索框圆角填充式，前置图标 + loading 指示器
-    OutlinedTextField(
-        value = query,
-        onValueChange = onSearch,
-        modifier = Modifier.fillMaxWidth(),
-        placeholder = { Text("搜索电影或剧集") },
-        singleLine = true,
-        shape = RoundedCornerShape(12.dp),
-        leadingIcon = {
-            if (loading) {
-                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-            } else {
-                Icon(Icons.Default.Search, contentDescription = null)
-            }
-        },
-    )
-    if (results.isNotEmpty()) {
-        Spacer(Modifier.height(12.dp))
-        Text(
-            text = "搜索结果 (${results.size})",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(Modifier.height(8.dp))
-        // 2 列海报网格，海报为主视觉，标题/年份在下方
-        LazyColumn(
+    Column(modifier = modifier) {
+        // 搜索框圆角填充式，前置图标 + loading 指示器
+        OutlinedTextField(
+            value = query,
+            onValueChange = onSearch,
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            items(results, key = { it.tmdbId }) { c ->
-                CandidatePosterCard(candidate = c, onClick = { onSelect(c) })
+            placeholder = { Text("搜索电影或剧集") },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            leadingIcon = {
+                if (loading) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.Search, contentDescription = null)
+                }
+            },
+        )
+        if (results.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = "搜索结果 (${results.size})",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(8.dp))
+            // 2 列海报网格，海报为主视觉，标题/年份在下方
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items(results, key = { it.tmdbId }) { c ->
+                    CandidatePosterCard(candidate = c, onClick = { onSelect(c) })
+                }
             }
         }
     }
