@@ -118,6 +118,9 @@ class MatchViewModel @Inject constructor(
             if (it.selectedFiles == files) {
                 it
             } else {
+                // 文件列表变化时才清空会话搜索缓存：同一批文件重新匹配时保留缓存，
+                // 搜索/详情命中内存缓存或 Room 持久缓存，避免重复联网（用户反馈"重复匹配仍联网"）。
+                tmdbCache.clearSessionCache()
                 it.copy(
                     selectedFiles = files,
                     progress = Progress.Idle,
@@ -176,8 +179,8 @@ class MatchViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
-            // 清空会话搜索缓存，避免上次匹配的搜索结果残留影响本次
-            tmdbCache.clearSessionCache()
+            // 会话搜索缓存的清空已移至 setFiles：仅当文件列表变化时清空，
+            // 同一批文件重新匹配时保留缓存命中，避免重复联网。
             val apiKey = settings.apiKey.first()
             if (apiKey.isBlank()) {
                 _uiState.update {
