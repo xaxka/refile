@@ -76,11 +76,12 @@ import xa.refile.core.webdav.MediaFileTypes
 import xa.refile.core.webdav.WebDavEntry
 import xa.refile.ui.common.EmptyState
 import xa.refile.ui.match.MatchViewModel
+import xa.refile.ui.theme.AccentAmber
 
-/** 目录图标用琥珀色。 */
-private val AmberColor = Color(0xFFFFC107)
-/** 匹配方式卡片强调色：自动=琥珀 / 电影=靛蓝 / 剧集=青。 */
-private val MatchAutoColor = Color(0xFFFFC107)
+/** 目录图标用主强调色（蓝）。 */
+private val DirAccentColor = AccentAmber
+/** 匹配方式卡片强调色：自动=主色蓝 / 电影=靛蓝 / 剧集=青。 */
+private val MatchAutoColor = AccentAmber
 private val MatchMovieColor = Color(0xFF5C6BC0)
 private val MatchTvColor = Color(0xFF26A69A)
 
@@ -507,7 +508,7 @@ private fun BrowserEntryRow(
     val onSurface = MaterialTheme.colorScheme.onSurface
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
     val iconTint = when {
-        entry.isCollection && !multiSelectMode -> AmberColor
+        entry.isCollection && !multiSelectMode -> DirAccentColor
         multiSelectMode && !isSelectableVideo && !entry.isCollection -> onSurfaceVariant
         isDisplayOnly -> onSurfaceVariant
         else -> onSurface

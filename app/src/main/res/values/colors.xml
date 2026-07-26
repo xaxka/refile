@@ -1,7 +1,7 @@
 <resources>
-    <!-- Light window background (pure white). -->
-    <color name="window_white">#FFFFFFFF</color>
+    <!-- Light window background (cool off-white). -->
+    <color name="window_white">#F7FBFF</color>
     <color name="surface_white">#FFFFFFFF</color>
-    <color name="surface_variant_light">#F2F2F7</color>
-    <color name="accent_amber">#E8941D</color>
+    <color name="surface_variant_light">#E1E8F0</color>
+    <color name="accent_amber">#0B6CB8</color>
 </resources>
