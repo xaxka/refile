@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
@@ -69,6 +70,7 @@ fun ServerListScreen(
     onOpenBrowser: (Long) -> Unit,
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit = {},
+    onOpenTemplateEditor: () -> Unit = {},
     viewModel: ServerListViewModel = hiltViewModel(),
 ) {
     val servers by viewModel.servers.collectAsStateWithLifecycle()
@@ -81,6 +83,9 @@ fun ServerListScreen(
                 actions = {
                     IconButton(onClick = onOpenHistory) {
                         Icon(Icons.Default.History, contentDescription = "历史记录")
+                    }
+                    IconButton(onClick = onOpenTemplateEditor) {
+                        Icon(Icons.Default.Description, contentDescription = "模板编辑器")
                     }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "设置")

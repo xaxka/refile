@@ -1,7 +1,6 @@
 package xa.refile.data.backup
 
 import androidx.room.withTransaction
-import xa.refile.core.naming.NamingOptions
 import xa.refile.core.naming.PresetRepository
 import xa.refile.data.crypto.KeystoreCrypto
 import xa.refile.data.db.AppDatabase
@@ -294,19 +293,10 @@ class BackupRepository @Inject constructor(
     private fun b64Decode(s: String): ByteArray = Base64.getDecoder().decode(s)
 
     private fun VisualOptions.toSnapshot(): VisualOptionsSnapshot = VisualOptionsSnapshot(
-        separator = separator.toString(),
-        caseMode = caseMode.name,
-        illegalCharHandling = illegalCharHandling.name,
         padDigits = padDigits,
     )
 
     private fun VisualOptionsSnapshot.toVisualOptions(): VisualOptions = VisualOptions(
-        separator = separator.firstOrNull() ?: ' ',
-        caseMode = runCatching { NamingOptions.Casing.valueOf(caseMode) }
-            .getOrDefault(NamingOptions.Casing.AS_IS),
-        illegalCharHandling = runCatching {
-            NamingOptions.IllegalCharHandling.valueOf(illegalCharHandling)
-        }.getOrDefault(NamingOptions.IllegalCharHandling.REPLACE_DASH),
         padDigits = padDigits,
     )
 

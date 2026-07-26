@@ -139,11 +139,6 @@ class SettingsViewModel @Inject constructor(
         _cacheCleared.value = null
     }
 
-    /** 触发跳转模板编辑器事件。 */
-    fun openTemplateEditor() {
-        viewModelScope.launch { _events.emit(SettingsNavEvent.OpenTemplateEditor) }
-    }
-
     /** 触发跳转备份与恢复事件。 */
     fun openBackup() {
         viewModelScope.launch { _events.emit(SettingsNavEvent.OpenBackup) }
@@ -219,9 +214,6 @@ class SettingsViewModel @Inject constructor(
 
 /** 设置中心一次性导航事件。 */
 sealed interface SettingsNavEvent {
-    /** 跳转模板编辑器。 */
-    object OpenTemplateEditor : SettingsNavEvent
-
     /** 跳转备份与恢复。 */
     object OpenBackup : SettingsNavEvent
 

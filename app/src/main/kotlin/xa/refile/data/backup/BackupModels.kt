@@ -70,9 +70,6 @@ data class SettingsSnapshot(
 /** 可视化选项快照（用基本类型字段，规避 [xa.refile.data.prefs.VisualOptions] 不可序列化的问题）。 */
 @Serializable
 data class VisualOptionsSnapshot(
-    val separator: String = " ",
-    val caseMode: String = "AS_IS",
-    val illegalCharHandling: String = "REPLACE_DASH",
     val padDigits: Int = 2,
 )
 

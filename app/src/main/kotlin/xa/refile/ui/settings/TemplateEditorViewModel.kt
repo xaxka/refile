@@ -36,7 +36,7 @@ import javax.inject.Inject
  * - [movieTemplateField] / [episodeTemplateField]：电影/剧集模板字符串 + 光标位置。
  * - [activeTab]：当前编辑的标签（电影/剧集）。
  * - [presetId]：当前预设 ID（始终为 [Preset.DEFAULT]，保留以便旧调用方兼容）。
- * - [visualOptions]：分隔符/大小写/非法字符处理/补零位数。
+ * - [visualOptions]：仅补零位数（分隔符/大小写/非法字符处理已移除）。
  * - [previewResult]：用固定电影 + 剧集示例实时渲染的结果（各自用对应模板）。
  *
  * 渲染走 [TemplateEngine]，每次创建新的 [BindingResolver] 避免警告累积。
@@ -176,6 +176,19 @@ class TemplateEditorViewModel @Inject constructor(
         val preset = Preset.DEFAULT
         _movieTemplateField.value = TextFieldValue(preset.movieTemplate)
         _episodeTemplateField.value = TextFieldValue(preset.episodeTemplate)
+    }
+
+    /**
+     * 重置为默认规则：把电影/剧集模板与可视化选项恢复为 [Preset.DEFAULT]。
+     *
+     * 仅更新内存字段，用户需点「保存」才会落库（与编辑后保存语义一致）。
+     */
+    fun resetToDefault() {
+        _presetId.value = Preset.DEFAULT.name
+        val preset = Preset.DEFAULT
+        _movieTemplateField.value = TextFieldValue(preset.movieTemplate)
+        _episodeTemplateField.value = TextFieldValue(preset.episodeTemplate)
+        _visualOptions.value = VisualOptions()
     }
 
     /** 更新可视化选项（实时影响预览）并持久化。 */

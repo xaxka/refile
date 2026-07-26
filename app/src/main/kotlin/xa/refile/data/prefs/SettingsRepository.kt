@@ -69,16 +69,9 @@ class SettingsRepository @Inject constructor(
         it[KEY_EPISODE_TEMPLATE] ?: ""
     }
 
-    /** 命名可视化选项（分隔符/大小写/非法字符处理/补零位数）。 */
+    /** 命名可视化选项（仅补零位数；分隔符/大小写/非法字符处理已移除，固定使用默认值）。 */
     val visualOptions: Flow<VisualOptions> = context.dataStore.data.map { prefs ->
         VisualOptions(
-            separator = prefs[KEY_SEPARATOR]?.firstOrNull() ?: ' ',
-            caseMode = prefs[KEY_CASE_MODE]
-                ?.let { runCatching { NamingOptions.Casing.valueOf(it) }.getOrNull() }
-                ?: NamingOptions.Casing.AS_IS,
-            illegalCharHandling = prefs[KEY_ILLEGAL]
-                ?.let { runCatching { NamingOptions.IllegalCharHandling.valueOf(it) }.getOrNull() }
-                ?: NamingOptions.IllegalCharHandling.REPLACE_DASH,
             padDigits = prefs[KEY_PAD_DIGITS] ?: 2,
         )
     }
@@ -170,12 +163,9 @@ class SettingsRepository @Inject constructor(
         context.dataStore.edit { it[KEY_EPISODE_TEMPLATE] = value }
     }
 
-    /** 保存可视化选项（分隔符以单字符字符串存储）。 */
+    /** 保存可视化选项（仅补零位数）。 */
     suspend fun setVisualOptions(value: VisualOptions) {
         context.dataStore.edit {
-            it[KEY_SEPARATOR] = value.separator.toString()
-            it[KEY_CASE_MODE] = value.caseMode.name
-            it[KEY_ILLEGAL] = value.illegalCharHandling.name
             it[KEY_PAD_DIGITS] = value.padDigits
         }
     }
@@ -206,9 +196,6 @@ class SettingsRepository @Inject constructor(
         private val KEY_TEMPLATE_STRING = stringPreferencesKey("template_string")
         private val KEY_MOVIE_TEMPLATE = stringPreferencesKey("movie_template")
         private val KEY_EPISODE_TEMPLATE = stringPreferencesKey("episode_template")
-        private val KEY_SEPARATOR = stringPreferencesKey("visual_separator")
-        private val KEY_CASE_MODE = stringPreferencesKey("visual_case_mode")
-        private val KEY_ILLEGAL = stringPreferencesKey("visual_illegal_char")
         private val KEY_PAD_DIGITS = intPreferencesKey("visual_pad_digits")
         private val KEY_HOSTS_CONFIG = stringPreferencesKey("hosts_config")
         private val KEY_HISTORY_MAX_COUNT = intPreferencesKey("history_max_count")
@@ -225,21 +212,13 @@ class SettingsRepository @Inject constructor(
 /**
  * 命名可视化选项（Task 3.3 模板编辑器）。
  *
- * 与 [xa.refile.core.naming.NamingOptions] 一一对应，但放在 data 层以便 DataStore 持久化。
- * UI 层通过 [toNamingOptions] 转换后传给 [xa.refile.core.naming.TemplateEngine]。
+ * 仅保留补零位数；分隔符/大小写/非法字符处理已按需求移除，[toNamingOptions] 固定使用默认值。
  */
 data class VisualOptions(
-    val separator: Char = ' ',
-    val caseMode: NamingOptions.Casing = NamingOptions.Casing.AS_IS,
-    val illegalCharHandling: NamingOptions.IllegalCharHandling =
-        NamingOptions.IllegalCharHandling.REPLACE_DASH,
     val padDigits: Int = 2,
 ) {
-    /** 转为 core 层 [NamingOptions] 供模板引擎使用。 */
+    /** 转为 core 层 [NamingOptions] 供模板引擎使用（其余字段用默认值）。 */
     fun toNamingOptions(): NamingOptions = NamingOptions(
-        wordSeparator = separator,
-        casing = caseMode,
-        illegalCharHandling = illegalCharHandling,
         padLength = padDigits,
     )
 }

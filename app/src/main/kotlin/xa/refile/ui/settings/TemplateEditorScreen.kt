@@ -1,11 +1,9 @@
 package xa.refile.ui.settings
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,10 +23,10 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -50,7 +48,6 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import xa.refile.core.naming.NamingOptions
 import xa.refile.data.prefs.VisualOptions
 import xa.refile.ui.theme.WarningAmber
 import kotlinx.coroutines.launch
@@ -58,15 +55,13 @@ import kotlinx.coroutines.launch
 /**
  * 模板编辑器页（计划 §M3 SubTask 3.3.1 + 测试反馈 Item 9/10）。
  *
- * 按测试反馈 Item 9 改造：
+ * 布局（自上而下）：
  * - 顶部 TabRow：电影模板 / 剧集模板，分别编辑。
+ * - 实时预览卡片：仅展示当前 Tab 对应类型的预览（电影 Tab → 电影示例，剧集 Tab → 剧集示例）。
  * - 模板字符串输入框（多行 monospace），绑定当前 Tab 对应的模板。
  * - 变量插入：按组用 [FlowRow] 自动换行（测试反馈 Item 10，避免横向拥挤）。
- * - 可视化选项：分隔符 / 大小写 / 非法字符处理 / 补零位数 Slider。
- * - 实时预览卡片：电影 + 剧集两份示例渲染结果（各自用对应模板）。
- * - 保存：写入 DataStore，Snackbar 反馈。
- *
- * 已移除预设选择与「另存为预设」功能，仅保留直接编辑模板的能力。
+ * - 可视化选项：仅补零位数 Slider。
+ * - 底部：保存按钮 + 重置为默认规则按钮。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -106,6 +101,10 @@ fun TemplateEditorScreen(
         }
     }
 
+    val reset: () -> Unit = {
+        viewModel.resetToDefault()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -143,6 +142,12 @@ fun TemplateEditorScreen(
                 }
             }
 
+            // 预览放顶部：仅展示当前 Tab 对应类型的示例
+            PreviewCard(
+                preview = preview,
+                activeTab = activeTab,
+            )
+
             OutlinedTextField(
                 value = currentField,
                 onValueChange = viewModel::updateTemplate,
@@ -171,8 +176,6 @@ fun TemplateEditorScreen(
                 onUpdate = viewModel::saveVisualOptions,
             )
 
-            PreviewCard(preview = preview)
-
             Button(
                 onClick = save,
                 enabled = !isSaving,
@@ -189,6 +192,13 @@ fun TemplateEditorScreen(
                 } else {
                     Text("保存")
                 }
+            }
+
+            OutlinedButton(
+                onClick = reset,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("重置为默认规则")
             }
         }
     }
@@ -234,7 +244,7 @@ private fun VariableChips(
     }
 }
 
-/** 可视化选项：分隔符 / 大小写 / 非法字符 / 补零位数。 */
+/** 可视化选项：仅补零位数（分隔符/大小写/非法字符处理已按需求移除）。 */
 @Composable
 private fun VisualOptionsSection(
     options: VisualOptions,
@@ -242,44 +252,6 @@ private fun VisualOptionsSection(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("可视化选项", style = MaterialTheme.typography.labelLarge)
-
-        // 分隔符
-        Text("分隔符", style = MaterialTheme.typography.labelMedium)
-        OptionChipRow(
-            options = listOf(
-                ' ' to "空格",
-                '_' to "下划线",
-                '.' to "点",
-                '-' to "横线",
-            ),
-            selected = options.separator,
-            onSelect = { onUpdate(options.copy(separator = it)) },
-        )
-
-        // 大小写
-        Text("大小写", style = MaterialTheme.typography.labelMedium)
-        OptionChipRow(
-            options = listOf(
-                NamingOptions.Casing.AS_IS to "原样",
-                NamingOptions.Casing.UPPER to "大写",
-                NamingOptions.Casing.LOWER to "小写",
-                NamingOptions.Casing.TITLE to "首字母大写",
-            ),
-            selected = options.caseMode,
-            onSelect = { onUpdate(options.copy(caseMode = it)) },
-        )
-
-        // 非法字符处理
-        Text("非法字符处理", style = MaterialTheme.typography.labelMedium)
-        OptionChipRow(
-            options = listOf(
-                NamingOptions.IllegalCharHandling.REMOVE to "删除",
-                NamingOptions.IllegalCharHandling.REPLACE_UNDERSCORE to "替换为下划线",
-                NamingOptions.IllegalCharHandling.REPLACE_DASH to "替换为横线",
-            ),
-            selected = options.illegalCharHandling,
-            onSelect = { onUpdate(options.copy(illegalCharHandling = it)) },
-        )
 
         // 补零位数
         Text(
@@ -295,32 +267,16 @@ private fun VisualOptionsSection(
     }
 }
 
-/** 通用 Chip 行：横向滚动，单选。 */
+/**
+ * 实时预览卡片：仅展示当前 Tab 对应类型的示例。
+ * - 电影 Tab → 只显示电影示例预览。
+ * - 剧集 Tab → 只显示剧集示例预览。
+ */
 @Composable
-private fun <T> OptionChipRow(
-    options: List<Pair<T, String>>,
-    selected: T,
-    onSelect: (T) -> Unit,
+private fun PreviewCard(
+    preview: TemplateEditorViewModel.PreviewUi,
+    activeTab: TemplateEditorViewModel.EditorTab,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        options.forEach { (value, text) ->
-            FilterChip(
-                selected = value == selected,
-                onClick = { onSelect(value) },
-                label = { Text(text) },
-            )
-        }
-    }
-}
-
-/** 实时预览卡片：电影 + 剧集示例。 */
-@Composable
-private fun PreviewCard(preview: TemplateEditorViewModel.PreviewUi) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -333,8 +289,12 @@ private fun PreviewCard(preview: TemplateEditorViewModel.PreviewUi) {
         ) {
             Text("实时预览", style = MaterialTheme.typography.titleSmall)
 
-            PreviewItem(label = "电影示例", value = preview.movie)
-            PreviewItem(label = "剧集示例", value = preview.episode)
+            when (activeTab) {
+                TemplateEditorViewModel.EditorTab.MOVIE ->
+                    PreviewItem(label = "电影示例", value = preview.movie)
+                TemplateEditorViewModel.EditorTab.EPISODE ->
+                    PreviewItem(label = "剧集示例", value = preview.episode)
+            }
 
             if (preview.warnings.isNotEmpty()) {
                 Spacer(Modifier.size(4.dp))
