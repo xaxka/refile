@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -51,7 +50,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,7 +57,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
-import coil3.compose.SubcomposeAsyncImage
 import xa.refile.core.model.MediaType
 import xa.refile.ui.match.EditMatchViewModel.MediaCandidate
 
@@ -353,10 +350,10 @@ private fun MediaSearchSection(
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(8.dp))
-            // 2 列海报网格，海报为主视觉，标题/年份在下方
+            // 候选列表：横排小海报 + 元信息，与已选区视觉统一
             LazyColumn(
                 modifier = Modifier.fillMaxWidth().weight(1f),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(results, key = { it.tmdbId }) { c ->
                     CandidatePosterCard(candidate = c, onClick = { onSelect(c) })
@@ -367,93 +364,55 @@ private fun MediaSearchSection(
 }
 
 /**
- * 候选海报卡片：2 列网格单元。
+ * 候选卡片：横排小海报 + 元信息列表项。
  *
- * - 海报（2:3 比例，圆角，主视觉占主导）
- * - 标题（含年份，1 行省略）
- * - 类型徽章（电影/剧集，左下角叠加于海报上）
- *
- * 替代原 [CandidateRow] 的横排小缩略图 + 文字列表布局。
+ * 与 [SelectedMediaSummary]（已选区）保持一致的视觉风格：
+ * 左侧固定尺寸海报缩略图（72×108，2:3）+ 右侧标题/类型/简介。
+ * 替代原 2 列大海报网格，让搜索结果区与外层界面统一。
  */
 @Composable
 private fun CandidatePosterCard(candidate: MediaCandidate, onClick: () -> Unit) {
-    Column(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .clickable(onClick = onClick),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(10.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center,
+        Row(
+            modifier = Modifier.padding(8.dp),
+            verticalAlignment = Alignment.Top,
         ) {
-            SubcomposeAsyncImage(
-                model = candidate.posterUrl,
-                contentDescription = candidate.name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-                loading = {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                        )
-                    }
-                },
-                error = {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            Icons.Default.Movie,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(28.dp),
-                        )
-                    }
-                },
-            )
-            // 类型徽章：左下角叠加（海报上叠加元信息）
-            Surface(
-                color = Color.Black.copy(alpha = 0.6f),
-                shape = RoundedCornerShape(topEnd = 8.dp, bottomStart = 8.dp),
-                modifier = Modifier.align(Alignment.BottomStart),
-            ) {
+            PosterThumb(posterUrl = candidate.posterUrl, sizeW = 72.dp, sizeH = 108.dp)
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                val title = if (candidate.year != null) "${candidate.name} (${candidate.year})" else candidate.name
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(4.dp))
                 Text(
                     text = if (candidate.mediaType == MediaType.EPISODE) "剧集" else "电影",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
                 )
+                candidate.overview?.takeIf { it.isNotBlank() }?.let { ov ->
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        ov,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
-        }
-        Spacer(Modifier.height(6.dp))
-        val title = if (candidate.year != null) "${candidate.name} (${candidate.year})" else candidate.name
-        Text(
-            title,
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        candidate.overview?.takeIf { it.isNotBlank() }?.let { ov ->
-            Text(
-                ov,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 }
