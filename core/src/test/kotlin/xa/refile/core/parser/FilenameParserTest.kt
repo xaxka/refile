@@ -384,4 +384,32 @@ class FilenameParserTest {
         assertThat(r.isDailyShow).isTrue()
         assertThat(r.year).isNull()
     }
+
+    // ---- 集名/副标题分隔（` - `）----
+
+    @Test fun `episode title after dash separator stripped`() {
+        // `雀骨(2026)S01E01 - 无衣嘉鱼的混乱初遇`：` - ` 后是集名/副标题，
+        // 应只保留主标识 `雀骨 2026 S01E01`，标题为 `雀骨`。
+        val r = parser.parse("雀骨(2026)S01E01 - 无衣嘉鱼的混乱初遇.mkv")
+        assertThat(r.title).isEqualTo("雀骨")
+        assertThat(r.year).isEqualTo(2026)
+        assertThat(r.season).isEqualTo(1)
+        assertThat(r.episodes).containsExactly(1)
+        assertThat(r.mediaType).isEqualTo(MediaType.EPISODE)
+    }
+
+    @Test fun `episode title dash separator without extension`() {
+        val r = parser.parse("雀骨(2026)S01E01 - 无衣嘉鱼的混乱初遇")
+        assertThat(r.title).isEqualTo("雀骨")
+        assertThat(r.year).isEqualTo(2026)
+        assertThat(r.season).isEqualTo(1)
+        assertThat(r.episodes).containsExactly(1)
+    }
+
+    @Test fun `hyphen without spaces not treated as separator`() {
+        // `X-Men` 这类连字符无空格，不应被当作集名分隔符拆分。
+        val r = parser.parse("X-Men.2000.1080p.mkv")
+        assertThat(r.title).isEqualTo("X-Men")
+        assertThat(r.year).isEqualTo(2000)
+    }
 }
