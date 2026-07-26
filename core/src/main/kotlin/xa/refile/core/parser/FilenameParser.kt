@@ -300,6 +300,12 @@ class FilenameParser {
     // ---- 标题清洗 ----
     private fun cleanTitle(spaced: String, stripAbsoluteEp: Boolean): String? {
         var t = spaced
+        // 剔除 ` - ` 分隔的附加描述（集名/副标题）：如 `雀骨 2026 S01E01 - 无衣嘉鱼的混乱初遇`
+        // → 只保留 `雀骨 2026 S01E01`。` - `（前后带空格的横线）在正规发布标题内部极少出现
+        //（X-Men 等连字符无空格，不会误伤），可安全用作"主标识 vs 附加描述"分隔符。
+        EPISODE_TITLE_SEP.find(t)?.let { m ->
+            t = t.substring(0, m.range.first)
+        }
         t = SEASON_EPISODE.replace(t, " ")
         t = SEASON_RANGE.replace(t, " ")
         t = NX_N.replace(t, " ")
@@ -416,5 +422,7 @@ class FilenameParser {
         private val PART = Regex("(?i)(?:^|\\s)(?:CD|DISC|PART|PT)\\s?(\\d{1,2})(?:$|\\s)")
         // 技术标签尾巴：匹配从首个技术标签起的位置
         private val TECH_TAIL = Regex("(?i)\\b(2160p|1080p|720p|480p|540p|Blu-?Ray|WEB-?DL|WEBRip|HDTV|DVDRip|REMUX|x264|x265|h264|h265|hevc|av1|AAC|AC3|DTS|TrueHD|Atmos|FLAC)")
+        // 集名/副标题分隔符：` - `（前后带空格的横线），如 `剧名 S01E01 - 集名` 中的 ` - `。
+        private val EPISODE_TITLE_SEP = Regex("\\s-\\s")
     }
 }
