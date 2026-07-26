@@ -64,7 +64,7 @@ object Routes {
     const val PROGRESS = "progress/{workId}"
     private const val PROGRESS_BASE = "progress"
 
-    /** 模板编辑器路由（Task 3.3）。从服务器列表页跳转。 */
+    /** 模板编辑器路由（Task 3.3）。从设置页跳转。 */
     const val TEMPLATE_EDITOR = "template_editor"
 
     /** Hosts 设置路由（Task 5.3.4/5.3.5）。从设置页跳转。 */
@@ -140,7 +140,6 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 onOpenBrowser = { id -> navController.navigate(Routes.browser(id)) },
                 onOpenHistory = { navController.navigate(Routes.history()) },
                 onOpenSettings = { navController.navigate(Routes.settings()) },
-                onOpenTemplateEditor = { navController.navigate(Routes.templateEditor()) },
             )
         }
 
@@ -282,6 +281,7 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
                 onOpenTmdbConfig = { navController.navigate(Routes.tmdbConfig()) },
+                onOpenTemplateEditor = { navController.navigate(Routes.templateEditor()) },
                 onOpenBackup = { navController.navigate(Routes.backup()) },
                 onOpenHostsSettings = { navController.navigate(Routes.hostsSettings()) },
                 onOpenHistorySettings = { navController.navigate(Routes.historySettings()) },

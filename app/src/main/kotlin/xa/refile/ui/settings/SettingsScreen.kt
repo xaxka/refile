@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
@@ -52,10 +53,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
  *
  * 作为所有子设置功能的统一入口，按分组卡片组织：
  * - 组 1 TMDB 配置：入口项，跳转 [TmdbConfigScreen]。
- * - 组 2 数据管理：备份与恢复。
- * - 组 3 网络：Hosts 设置。
- *
- * 模板编辑器入口已移至服务器列表页顶栏，不再在设置页内提供。
+ * - 组 2 命名与模板：模板编辑器入口。
+ * - 组 3 数据管理：备份与恢复。
+ * - 组 4 网络：Hosts 设置。
  *
  * 列表项统一用 [SettingsRow]（图标 + 标题 + 副标题 + 右箭头 + 点击）。
  * 子页跳转通过 [SettingsViewModel.events] 一次性事件驱动。
@@ -63,6 +63,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
  *
  * @param onBack 返回服务器列表。
  * @param onOpenTmdbConfig 跳转 TMDB 配置子页。
+ * @param onOpenTemplateEditor 跳转模板编辑器。
  * @param onOpenBackup 跳转备份与恢复。
  * @param onOpenHostsSettings 跳转 Hosts 设置。
  * @param onOpenHistorySettings 跳转历史记录设置。
@@ -72,6 +73,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenTmdbConfig: () -> Unit,
+    onOpenTemplateEditor: () -> Unit,
     onOpenBackup: () -> Unit,
     onOpenHostsSettings: () -> Unit,
     onOpenHistorySettings: () -> Unit,
@@ -90,6 +92,7 @@ fun SettingsScreen(
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             when (event) {
+                SettingsNavEvent.OpenTemplateEditor -> onOpenTemplateEditor()
                 SettingsNavEvent.OpenBackup -> onOpenBackup()
                 SettingsNavEvent.OpenHostsSettings -> onOpenHostsSettings()
                 SettingsNavEvent.OpenHistorySettings -> onOpenHistorySettings()
@@ -138,7 +141,19 @@ fun SettingsScreen(
                 }
             }
 
-            // ---------- 组 2：数据管理 ----------
+            // ---------- 组 2：命名与模板 ----------
+            item {
+                SettingsSection(title = "命名与模板") {
+                    SettingsRow(
+                        icon = Icons.Default.Description,
+                        title = "模板编辑器",
+                        subtitle = "补零位数与变量插值",
+                        onClick = viewModel::openTemplateEditor,
+                    )
+                }
+            }
+
+            // ---------- 组 3：数据管理 ----------
             item {
                 SettingsSection(title = "数据管理") {
                     SettingsRow(
@@ -156,7 +171,7 @@ fun SettingsScreen(
                 }
             }
 
-            // ---------- 组 3：网络 ----------
+            // ---------- 组 4：网络 ----------
             item {
                 SettingsSection(title = "网络") {
                     SettingsRow(
@@ -168,7 +183,7 @@ fun SettingsScreen(
                 }
             }
 
-            // ---------- 组 4：关于 ----------
+            // ---------- 组 5：关于 ----------
             item {
                 SettingsSection(title = "关于") {
                     Row(
