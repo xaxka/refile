@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Empty stub. AllowBackup is false (we ship our own JSON backup/restore);
+  this file exists only so the manifest reference resolves cleanly.
+-->
+<data-extraction-rules />
