@@ -130,6 +130,20 @@ class FilenameParserTest {
         assertThat(r.mediaType).isEqualTo(MediaType.MOVIE)
     }
 
+    @Test fun `multi-year filename takes last year as release year`() {
+        // 1994 是原作/片中年份，2026 是发行版年份；应取 2026 用于 TMDB 搜索，
+        // 否则用 1994 搜 2026 年的电影会搜不到。
+        val r = parser.parse("Cold.War.1994.2026.2160p.YK.WEB-DL.H.265.DV.HQ.DTS5.1-PandaQT.mkv")
+        assertThat(r.title).isEqualTo("Cold War")
+        assertThat(r.year).isEqualTo(2026)
+        assertThat(r.season).isNull()
+        assertThat(r.episodes).isEmpty()
+        assertThat(r.mediaType).isEqualTo(MediaType.MOVIE)
+        assertThat(r.resolution).isEqualTo("2160p")
+        assertThat(r.source).isEqualTo("WEB-DL")
+        assertThat(r.group).isEqualTo("PandaQT")
+    }
+
     @Test fun `Chinese title with tech`() {
         val r = parser.parse("流浪地球2.2023.2160p.WEB-DL.x265.mkv")
         assertThat(r.title).isEqualTo("流浪地球2")

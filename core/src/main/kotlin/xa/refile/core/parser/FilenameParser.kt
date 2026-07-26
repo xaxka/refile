@@ -279,8 +279,12 @@ class FilenameParser {
     }
 
     // ---- 年份 ----
+    // 文件名含多个 4 位年份时（如 `Cold.War.1994.2026.2160p...`，1994 为原作/片中年份，
+    // 2026 为发行版年份）取最后一个有效年份：发行版年份通常紧挨分辨率等技术标签，
+    // 用它搜 TMDB 命中率更高。单年份场景不受影响（只有一个匹配）。
     private fun parseYear(input: String): Int? {
-        YEAR.find(input)?.let { m ->
+        val matches = YEAR.findAll(input).toList()
+        for (m in matches.asReversed()) {
             val y = m.value.toInt()
             if (y in 1900..2099) return y
         }
