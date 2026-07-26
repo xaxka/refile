@@ -45,11 +45,9 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -91,15 +89,11 @@ private val PageMargin = 16.dp
  * 从 Activity 作用域 [MatchSessionViewModel.matches] 取整批次文件，载入
  * [BatchMatchViewModel]；保存后整表回写 [MatchSessionViewModel.replaceMatches] 再返回。
  *
- * UI 结构：
- * 1. 已选剧集卡 + 搜索框（selectedMedia==null 时引导搜索）
- * 2. 季选择器（选定剧集后展示，支持「全部季」默认）
- * 3. 批量工具条（智能 / 顺序 / 解绑，无图标）
- * 4. 校验状态条（重复 / 空槽 / dirty 摘要）
- * 5. 集位槽列表（每集一卡，点击槽位弹出文件选择器绑定/交换）
- * 6. 未绑定文件区（点击文件进入精确编辑 BottomSheet）
+ * UI 结构（与 EditMatchScreen 交互对齐）：
+ * - 正常模式：已选剧集卡（点击进入重新选择）+ 校验状态条 + 集位槽列表
+ * - 重新选择模式 / 首次选择：搜索框 + 候选列表 + 季选择器（季选择器在此视图内，不在主页面）
  *
- * 交互：点击空槽 → 弹出文件选择器选文件绑定；点击有文件的槽 → 弹出选择器选文件交换。
+ * 集位槽交互：点击空槽 → 弹出文件选择器选文件绑定；点击有文件的槽 → 弹出选择器选文件交换。
  * 绑定/交换逻辑由 [BatchMatchViewModel.onDropFile] 统一处理（含跨槽交换）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -145,9 +139,9 @@ fun BatchMatchScreen(
     var preciseEditFile by remember { mutableStateOf<String?>(null) }
     /** 槽位文件选择器对应的 SlotKey（从槽位侧进入：选文件绑定/交换到该槽）。 */
     var slotPickerKey by remember { mutableStateOf<SlotKey?>(null) }
-    /** 是否展开编辑器：对齐 EditMatchScreen「点击剧集才出现搜索框和选择集」的交互。
-     *  初始为 false，用户点击「剧集」按钮后才展开搜索框 / 季选择器 / 集位槽。 */
-    var showEditor by rememberSaveable { mutableStateOf(false) }
+    /** 重新选择模式：点击已选剧集卡后进入，搜索框 + 季选择器在此视图内展示。
+     *  与 EditMatchScreen 交互对齐：点击已匹配剧集卡 → 重新选择（含季）；非按钮触发。 */
+    var reselectMode by rememberSaveable { mutableStateOf(false) }
 
     // dirty 时拦截返回，弹放弃确认
     BackHandler(enabled = state.dirty && !state.loading) {
@@ -201,67 +195,25 @@ fun BatchMatchScreen(
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // 顶部「剧集」按钮：点击后才展开搜索框与集位槽
-                // （对齐 EditMatchScreen「点击剧集才出现搜索框和选择集」的交互）
-                SingleChoiceSegmentedButtonRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = PageMargin, vertical = 8.dp),
-                ) {
-                    SegmentedButton(
-                        selected = showEditor,
-                        onClick = { showEditor = true },
-                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 1),
-                    ) { Text("剧集") }
-                }
+                val selectedMedia = state.selectedMedia
+                val numberOfSeasons = state.numberOfSeasons
 
-                if (showEditor) {
-                    // 1. 已选剧集卡 / 搜索
-                    MediaSelectorCard(
-                        state = state,
-                        onSearch = viewModel::searchMedia,
-                        onSelect = { c ->
-                            if (state.bindings.isNotEmpty()) {
-                                pendingClearAction = { viewModel.selectMedia(c) }
-                            } else {
-                                viewModel.selectMedia(c)
-                            }
-                        },
+                if (selectedMedia != null && !reselectMode) {
+                    // ---- 正常模式：已选剧集卡（点击重新选择）+ 集位槽 ----
+                    SelectedMediaSummary(
+                        media = selectedMedia,
+                        seasonNumber = state.seasonNumber,
+                        onClick = { reselectMode = true },
                     )
-
-                    // 2. 季选择器（选定剧集后展示）。提取局部变量避免委托属性 smart cast 失败。
-                    val selectedMedia = state.selectedMedia
-                    val numberOfSeasons = state.numberOfSeasons
-                    if (selectedMedia != null && numberOfSeasons != null) {
-                        SeasonSelectorRow(
-                            seasonNumber = state.seasonNumber,
-                            numberOfSeasons = numberOfSeasons,
-                            onSetSeason = { s ->
-                                if (state.bindings.isNotEmpty()) {
-                                    pendingClearAction = { viewModel.setSeason(s) }
-                                } else {
-                                    viewModel.setSeason(s)
-                                }
-                            },
-                        )
-                    }
-
-                    // 3. 校验状态条（智能/顺序/解绑已移到底部栏）
                     ValidationStatusBar(state = state)
 
-                    // 4. 集位槽 + 未绑定区
                     if (state.episodeList.isEmpty()) {
-                        val hint = if (state.selectedMedia == null) {
-                            "请先搜索并选择剧集"
-                        } else {
-                            "请等待集列表加载…"
-                        }
                         Box(
                             modifier = Modifier.weight(1f).padding(24.dp),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
-                                text = hint,
+                                text = "请等待集列表加载…",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -275,17 +227,33 @@ fun BatchMatchScreen(
                         )
                     }
                 } else {
-                    // 未展开时显示提示
-                    Box(
-                        modifier = Modifier.weight(1f).padding(24.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "点击「剧集」开始批量匹配",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    // ---- 重新选择模式 / 首次选择：搜索 + 候选 + 季选择器 ----
+                    MediaReselectSection(
+                        modifier = Modifier.weight(1f),
+                        state = state,
+                        numberOfSeasons = numberOfSeasons,
+                        showReselectClose = selectedMedia != null,
+                        onCloseReselect = { reselectMode = false },
+                        onSearch = viewModel::searchMedia,
+                        onSelect = { c ->
+                            if (state.bindings.isNotEmpty()) {
+                                pendingClearAction = {
+                                    viewModel.selectMedia(c)
+                                    reselectMode = false
+                                }
+                            } else {
+                                viewModel.selectMedia(c)
+                                reselectMode = false
+                            }
+                        },
+                        onSetSeason = { s ->
+                            if (state.bindings.isNotEmpty()) {
+                                pendingClearAction = { viewModel.setSeason(s) }
+                            } else {
+                                viewModel.setSeason(s)
+                            }
+                        },
+                    )
                 }
             }
 
@@ -384,18 +352,114 @@ fun BatchMatchScreen(
     }
 }
 
-// ---- 1. 媒体选择卡 ----
+// ---- 1. 已选剧集卡 + 重新选择视图 ----
 
+/**
+ * 已选剧集摘要卡（正常模式）：点击进入重新选择视图（搜索 + 季选择器）。
+ * 与 EditMatchScreen 的 [SelectedMediaSummary] 交互对齐：点击卡 → 重新选择。
+ */
 @Composable
-private fun MediaSelectorCard(
+private fun SelectedMediaSummary(
+    media: MediaCandidate,
+    seasonNumber: Int?,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = PageMargin, vertical = 8.dp)
+            .clip(RoundedCornerShape(CardRadius))
+            .clickable(onClick = onClick),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+        shape = RoundedCornerShape(CardRadius),
+    ) {
+        Row(
+            modifier = Modifier.padding(10.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            PosterThumb(posterUrl = media.posterUrl, sizeW = 56.dp, sizeH = 84.dp)
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                val title = if (media.year != null) "${media.name} (${media.year})" else media.name
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(4.dp))
+                val metaLabel = buildString {
+                    append(if (media.mediaType == MediaType.EPISODE) "剧集" else "电影")
+                    if (media.mediaType == MediaType.EPISODE) {
+                        append(" · ")
+                        append(if (seasonNumber == null) "全部季" else "第 $seasonNumber 季")
+                    }
+                }
+                Text(
+                    metaLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "点击重新选择",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 重新选择视图：搜索框 + 候选列表 + 季选择器（含「取消」关闭按钮）。
+ *
+ * 与 EditMatchScreen 的 MediaSearchSection 交互对齐：季选择器在此视图内，
+ * 不在主页面。用户选了新候选 / 点「取消」即退出。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MediaReselectSection(
+    modifier: Modifier = Modifier,
     state: BatchMatchViewModel.UiState,
+    numberOfSeasons: Int?,
+    showReselectClose: Boolean,
+    onCloseReselect: () -> Unit,
     onSearch: (String) -> Unit,
     onSelect: (MediaCandidate) -> Unit,
+    onSetSeason: (Int?) -> Unit,
 ) {
-    Column(modifier = Modifier.padding(horizontal = PageMargin, vertical = 8.dp)) {
-        state.selectedMedia?.let { m ->
-            SelectedMediaSummary(media = m)
+    Column(modifier = modifier.padding(horizontal = PageMargin, vertical = 8.dp)) {
+        // 顶部：标题 + 关闭按钮（仅已选 media 重新选择时展示）
+        if (showReselectClose) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "重新选择",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                TextButton(onClick = onCloseReselect) { Text("取消") }
+            }
+            Spacer(Modifier.height(8.dp))
         }
+
+        // 季选择器（已知总季数时展示，移入重新选择视图与搜索同区）
+        if (numberOfSeasons != null) {
+            SeasonSelectorRow(
+                seasonNumber = state.seasonNumber,
+                numberOfSeasons = numberOfSeasons,
+                onSetSeason = onSetSeason,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+
+        // 搜索框
         OutlinedTextField(
             value = state.mediaSearchQuery,
             onValueChange = onSearch,
@@ -414,11 +478,17 @@ private fun MediaSelectorCard(
             },
         )
         if (state.mediaSearchResults.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "搜索结果 (${state.mediaSearchResults.size})",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold,
+            )
             Spacer(Modifier.height(4.dp))
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height((state.mediaSearchResults.size.coerceAtMost(4) * 76).dp),
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(state.mediaSearchResults, key = { it.tmdbId }) { c ->
                     CandidateRow(candidate = c, onClick = { onSelect(c) })
@@ -429,56 +499,41 @@ private fun MediaSelectorCard(
 }
 
 @Composable
-private fun SelectedMediaSummary(media: MediaCandidate) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 8.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
-            .padding(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        PosterThumb(posterUrl = media.posterUrl, sizeW = 32.dp, sizeH = 48.dp)
-        Spacer(Modifier.width(8.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            val title = if (media.year != null) "${media.name} (${media.year})" else media.name
-            Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-            Text(
-                if (media.mediaType == MediaType.EPISODE) "剧集" else "电影",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
 private fun CandidateRow(candidate: MediaCandidate, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surface)
             .clickable(onClick = onClick)
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(8.dp),
+        verticalAlignment = Alignment.Top,
     ) {
-        PosterThumb(posterUrl = candidate.posterUrl, sizeW = 40.dp, sizeH = 60.dp)
-        Spacer(Modifier.width(12.dp))
+        PosterThumb(posterUrl = candidate.posterUrl, sizeW = 48.dp, sizeH = 72.dp)
+        Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             val title = if (candidate.year != null) "${candidate.name} (${candidate.year})" else candidate.name
             Text(
                 title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                if (candidate.mediaType == MediaType.EPISODE) "剧集" else "电影",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+            )
             candidate.overview?.takeIf { it.isNotBlank() }?.let { ov ->
+                Spacer(Modifier.height(4.dp))
                 Text(
                     ov,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -507,9 +562,7 @@ private fun SeasonSelectorRow(
     ExposedDropdownMenuBox(
         expanded = expanded,
         onExpandedChange = { expanded = !expanded },
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = PageMargin, vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth(),
     ) {
         OutlinedTextField(
             value = currentLabel,

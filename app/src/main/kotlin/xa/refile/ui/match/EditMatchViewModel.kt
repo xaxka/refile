@@ -233,6 +233,25 @@ class EditMatchViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 进入重新选择模式（点击已选摘要触发）：不清空 [UiState.selectedMedia]，
+     * 保留季号/集列表以便季选择器在重新选择视图内仍可展示与切换；
+     * 仅把 [UiState.previousCandidates] 回填到 [UiState.mediaSearchResults]，
+     * 使「之前的匹配结果」直接显示，用户可点选其一或重新搜索。
+     *
+     * 与 [clearSelectedMedia] 的区别：本方法不清 selectedMedia，因此集列表/季号
+     * 仍可在主页面回显后用于选集；用户选了新候选或关闭重新选择视图即可退出。
+     */
+    fun enterReselectMode() {
+        _uiState.update {
+            it.copy(
+                mediaSearchResults = it.previousCandidates,
+                previousCandidates = emptyList(),
+                mediaSearchQuery = "",
+            )
+        }
+    }
+
     /** 改变季号并重新加载集列表。传 null 表示「全部季」（不加载具体集列表，保存时遍历查找）。 */
     fun setSeason(season: Int?) {
         val tvId = _uiState.value.selectedMedia?.tmdbId

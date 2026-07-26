@@ -40,12 +40,14 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -109,6 +111,10 @@ fun EditMatchScreen(
         }
     }
 
+    // 重新选择模式：点击已选剧集卡后进入，搜索框 + 季选择器在此视图内展示。
+    // 退出条件：选了新候选 / 点关闭按钮（保留原选择）。
+    var reselectMode by rememberSaveable { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -149,10 +155,18 @@ fun EditMatchScreen(
             } else {
                 SingleMultiView(
                     state = state,
+                    reselectMode = reselectMode,
+                    onEnterReselect = {
+                        viewModel.enterReselectMode()
+                        reselectMode = true
+                    },
+                    onExitReselect = { reselectMode = false },
                     onSwitchType = viewModel::switchMediaType,
                     onSearchMedia = viewModel::searchMedia,
-                    onSelectMedia = viewModel::selectMedia,
-                    onClearSelectedMedia = viewModel::clearSelectedMedia,
+                    onSelectMedia = { c ->
+                        viewModel.selectMedia(c)
+                        reselectMode = false
+                    },
                     onSetSeason = viewModel::setSeason,
                     onToggleEpisode = viewModel::toggleEpisode,
                 )
@@ -168,10 +182,12 @@ fun EditMatchScreen(
 @Composable
 private fun SingleMultiView(
     state: EditMatchViewModel.UiState,
+    reselectMode: Boolean,
+    onEnterReselect: () -> Unit,
+    onExitReselect: () -> Unit,
     onSwitchType: (MediaType) -> Unit,
     onSearchMedia: (String) -> Unit,
     onSelectMedia: (MediaCandidate) -> Unit,
-    onClearSelectedMedia: () -> Unit,
     onSetSeason: (Int?) -> Unit,
     onToggleEpisode: (Int) -> Unit,
 ) {
@@ -191,20 +207,22 @@ private fun SingleMultiView(
         }
         Spacer(Modifier.height(8.dp))
 
-        // 已选候选摘要（点击可清除选择并回显「之前的匹配结果」）
+        // 已选候选摘要：仅在非重新选择模式时展示，点击进入重新选择（搜索 + 季选择器）
         state.selectedMedia?.let { m ->
-            SelectedMediaSummary(
-                media = m,
-                seasonNumber = if (state.mediaType == MediaType.EPISODE) state.seasonNumber else null,
-                onClick = onClearSelectedMedia,
-            )
-            Spacer(Modifier.height(8.dp))
+            if (!reselectMode) {
+                SelectedMediaSummary(
+                    media = m,
+                    seasonNumber = if (state.mediaType == MediaType.EPISODE) state.seasonNumber else null,
+                    onClick = onEnterReselect,
+                )
+                Spacer(Modifier.height(8.dp))
+            }
         }
 
-        // 影视搜索框 + 候选列表
-        // 已选定 media 时收起搜索区，把空间让给剧集态的季/集面板；
-        // 未选定时搜索区占据剩余空间，海报网格可滚动浏览
-        if (state.selectedMedia == null) {
+        // 重新选择视图（含搜索框 + 候选列表 + 季选择器）：
+        // - 未选定 media（首次进入）
+        // - 已选定 media 且处于重新选择模式（点击已选卡触发）
+        if (state.selectedMedia == null || reselectMode) {
             MediaSearchSection(
                 modifier = Modifier.weight(1f),
                 query = state.mediaSearchQuery,
@@ -212,18 +230,17 @@ private fun SingleMultiView(
                 loading = state.loading,
                 onSearch = onSearchMedia,
                 onSelect = onSelectMedia,
+                mediaType = state.mediaType,
+                seasonNumber = state.seasonNumber,
+                numberOfSeasons = state.numberOfSeasons,
+                onSetSeason = onSetSeason,
+                showReselectClose = state.selectedMedia != null,
+                onCloseReselect = onExitReselect,
             )
         }
 
-        // 剧集态：季选择器 + 集列表
-        if (state.mediaType == MediaType.EPISODE && state.selectedMedia != null) {
-            SeasonPicker(
-                season = state.seasonNumber,
-                numberOfSeasons = state.numberOfSeasons,
-                onSetSeason = onSetSeason,
-            )
-            Spacer(Modifier.height(8.dp))
-
+        // 剧集态：集列表（仅在非重新选择模式 + 已选 media 时展示，季选择器已移入搜索区）
+        if (state.mediaType == MediaType.EPISODE && state.selectedMedia != null && !reselectMode) {
             Text(
                 text = "已选 ${state.selectedEpisodeNumbers.size} 集",
                 style = MaterialTheme.typography.labelMedium,
@@ -315,6 +332,7 @@ private fun SelectedMediaSummary(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MediaSearchSection(
     modifier: Modifier = Modifier,
@@ -323,8 +341,41 @@ private fun MediaSearchSection(
     loading: Boolean,
     onSearch: (String) -> Unit,
     onSelect: (MediaCandidate) -> Unit,
+    mediaType: MediaType,
+    seasonNumber: Int?,
+    numberOfSeasons: Int?,
+    onSetSeason: (Int?) -> Unit,
+    showReselectClose: Boolean,
+    onCloseReselect: () -> Unit,
 ) {
     Column(modifier = modifier) {
+        // 重新选择视图顶部：标题 + 关闭按钮（仅已选 media 重新选择时展示）
+        if (showReselectClose) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "重新选择",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                TextButton(onClick = onCloseReselect) { Text("取消") }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
+        // 季选择器：剧集态 + 已知总季数时展示（移入重新选择视图，与搜索同区）
+        if (mediaType == MediaType.EPISODE && numberOfSeasons != null) {
+            SeasonPicker(
+                season = seasonNumber,
+                numberOfSeasons = numberOfSeasons,
+                onSetSeason = onSetSeason,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+
         // 搜索框圆角填充式，前置图标 + loading 指示器
         OutlinedTextField(
             value = query,
