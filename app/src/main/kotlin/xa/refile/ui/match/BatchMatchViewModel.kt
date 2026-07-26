@@ -458,10 +458,24 @@ class BatchMatchViewModel @Inject constructor(
                 } else {
                     initialSeason // null 保留为 null（全部季）；非 null 在 total 未知时原样使用
                 }
+                // 用 TV 详情刷新 selectedMedia 的 overview/posterUrl：批量匹配的 basis 文件
+                // 元数据可能未含 overview（搜索结果不完整），此处用完整 TV 详情补全，使
+                // 已选剧集卡能展示剧集简介（与单集编辑页一致）。
+                val refreshedMedia = tv?.let { meta ->
+                    _uiState.value.selectedMedia?.let { cur ->
+                        cur.copy(
+                            overview = cur.overview?.takeIf { it.isNotBlank() }
+                                ?: meta.info["overview"],
+                            posterUrl = cur.posterUrl?.takeIf { it.isNotBlank() }
+                                ?: meta.info["posterPath"]?.let { TmdbImages.poster(path = it) },
+                        )
+                    }
+                }
                 _uiState.update {
                     it.copy(
                         numberOfSeasons = total,
                         seasonNumber = safeSeason,
+                        selectedMedia = refreshedMedia ?: it.selectedMedia,
                     )
                 }
                 if (safeSeason == null) {

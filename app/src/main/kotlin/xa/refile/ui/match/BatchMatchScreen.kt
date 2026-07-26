@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -143,9 +144,13 @@ fun BatchMatchScreen(
      *  与 EditMatchScreen 交互对齐：点击已匹配剧集卡 → 重新选择（含季）；非按钮触发。 */
     var reselectMode by rememberSaveable { mutableStateOf(false) }
 
-    // dirty 时拦截返回，弹放弃确认
-    BackHandler(enabled = state.dirty && !state.loading) {
-        showDiscardConfirm = true
+    // 返回拦截：重新选择模式优先退出重新选择；否则 dirty 时弹放弃确认。
+    BackHandler(enabled = reselectMode || (state.dirty && !state.loading)) {
+        if (reselectMode) {
+            reselectMode = false
+        } else {
+            showDiscardConfirm = true
+        }
     }
 
     // 应用按钮启用条件：只要没有未绑定文件即可执行重命名（不再要求 dirty / 无重复）。
@@ -159,7 +164,13 @@ fun BatchMatchScreen(
             TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = {
-                        if (state.dirty && !state.loading) showDiscardConfirm = true else onBack()
+                        if (reselectMode) {
+                            reselectMode = false
+                        } else if (state.dirty && !state.loading) {
+                            showDiscardConfirm = true
+                        } else {
+                            onBack()
+                        }
                     }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
@@ -199,7 +210,7 @@ fun BatchMatchScreen(
                 val numberOfSeasons = state.numberOfSeasons
 
                 if (selectedMedia != null && !reselectMode) {
-                    // ---- 正常模式：已选剧集卡（点击重新选择）+ 集位槽 ----
+                    // ---- 正常模式：已选剧集卡（固定）+ 校验状态条 + 集位槽（滚动）----
                     SelectedMediaSummary(
                         media = selectedMedia,
                         seasonNumber = state.seasonNumber,
@@ -232,8 +243,6 @@ fun BatchMatchScreen(
                         modifier = Modifier.weight(1f),
                         state = state,
                         numberOfSeasons = numberOfSeasons,
-                        showReselectClose = selectedMedia != null,
-                        onCloseReselect = { reselectMode = false },
                         onSearch = viewModel::searchMedia,
                         onSelect = { c ->
                             if (state.bindings.isNotEmpty()) {
@@ -357,6 +366,7 @@ fun BatchMatchScreen(
 /**
  * 已选剧集摘要卡（正常模式）：点击进入重新选择视图（搜索 + 季选择器）。
  * 与 EditMatchScreen 的 [SelectedMediaSummary] 交互对齐：点击卡 → 重新选择。
+ * 含剧集简介（overview），与单集编辑页保持一致。
  */
 @Composable
 private fun SelectedMediaSummary(
@@ -367,7 +377,7 @@ private fun SelectedMediaSummary(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = PageMargin, vertical = 8.dp)
+            .padding(horizontal = PageMargin, vertical = 4.dp)
             .clip(RoundedCornerShape(CardRadius))
             .clickable(onClick = onClick),
         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
@@ -402,22 +412,26 @@ private fun SelectedMediaSummary(
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold,
                 )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "点击重新选择",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                media.overview?.takeIf { it.isNotBlank() }?.let { ov ->
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        ov,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
 }
 
 /**
- * 重新选择视图：搜索框 + 候选列表 + 季选择器（含「取消」关闭按钮）。
+ * 重新选择视图：搜索框 + 候选列表 + 季选择器。
  *
  * 与 EditMatchScreen 的 MediaSearchSection 交互对齐：季选择器在此视图内，
- * 不在主页面。用户选了新候选 / 点「取消」即退出。
+ * 不在主页面。用户选了新候选即退出；点返回按钮（由外层 BackHandler 拦截）退出。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -425,30 +439,11 @@ private fun MediaReselectSection(
     modifier: Modifier = Modifier,
     state: BatchMatchViewModel.UiState,
     numberOfSeasons: Int?,
-    showReselectClose: Boolean,
-    onCloseReselect: () -> Unit,
     onSearch: (String) -> Unit,
     onSelect: (MediaCandidate) -> Unit,
     onSetSeason: (Int?) -> Unit,
 ) {
     Column(modifier = modifier.padding(horizontal = PageMargin, vertical = 8.dp)) {
-        // 顶部：标题 + 关闭按钮（仅已选 media 重新选择时展示）
-        if (showReselectClose) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "重新选择",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                TextButton(onClick = onCloseReselect) { Text("取消") }
-            }
-            Spacer(Modifier.height(8.dp))
-        }
-
         // 季选择器（已知总季数时展示，移入重新选择视图与搜索同区）
         if (numberOfSeasons != null) {
             SeasonSelectorRow(
@@ -640,6 +635,7 @@ private fun ValidationStatusBar(state: BatchMatchViewModel.UiState) {
 private fun SlotBoard(
     state: BatchMatchViewModel.UiState,
     modifier: Modifier = Modifier,
+    header: (LazyListScope.() -> Unit)? = null,
     onSlotClick: (SlotKey) -> Unit,
     onFileClick: (String) -> Unit,
 ) {
@@ -651,6 +647,7 @@ private fun SlotBoard(
         ),
         verticalArrangement = Arrangement.spacedBy(CardSpacing),
     ) {
+        header?.invoke(this)
         // B: LazyColumn key 必须是可存入 Bundle 的类型（String/Int/Long 等），
         // SlotKey 是自定义 data class 不能存入 Bundle，会抛 IllegalArgumentException 闪退。
         items(state.slots, key = { "slot_${it.slotKey.season}_${it.slotKey.episode}" }) { row ->

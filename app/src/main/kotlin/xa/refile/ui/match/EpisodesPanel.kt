@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -39,10 +40,12 @@ import coil3.compose.AsyncImage
  * - 单选 toggle：点击选中（行首显示 Check 图标），再点取消，互斥（选新的取消旧的）
  *
  * 作为 EditMatchScreen 的子组件嵌入；亦可通过外层包 BottomSheet 复用。
+ * [header] 可用于把「已选剧集卡」等内容作为 LazyColumn 首项随列表一起滚动（不固定）。
  *
  * @param episodes 全季集列表
  * @param selected 已选集号集合
  * @param onToggle 单集勾选回调
+ * @param header 可选的头部项（插入到 LazyColumn 首部，随列表滚动）
  */
 @Composable
 fun EpisodesPanel(
@@ -50,9 +53,10 @@ fun EpisodesPanel(
     selected: Set<Int>,
     onToggle: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    header: (LazyListScope.() -> Unit)? = null,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
-        if (episodes.isEmpty()) {
+        if (episodes.isEmpty() && header == null) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -70,6 +74,7 @@ fun EpisodesPanel(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                header?.invoke(this)
                 items(episodes, key = { it.episodeNumber }) { ep ->
                     val isSelected = ep.episodeNumber in selected
                     EpisodeRow(

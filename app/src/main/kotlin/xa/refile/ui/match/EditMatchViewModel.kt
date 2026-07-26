@@ -121,13 +121,13 @@ class EditMatchViewModel @Inject constructor(
         val matched = fileMatch.matched
         val type = matched?.type
             ?: if (fileMatch.parsed.isEpisode) MediaType.EPISODE else MediaType.MOVIE
-        val season = matched?.seasonNumber ?: fileMatch.parsed.season
         val prevCandidates = fileMatch.candidates.map { it.toMediaCandidate() }
         _uiState.update { s ->
             s.copy(
                 currentMatch = fileMatch,
                 mediaType = type,
-                seasonNumber = if (type == MediaType.EPISODE) season ?: 1 else null,
+                // 默认「全部季」（null）：仅拉取 numberOfSeasons 供季选择器展示，不加载具体集列表。
+                seasonNumber = null,
                 selectedEpisodeNumbers = (matched?.episodeNumbers ?: fileMatch.parsed.episodes).toSet(),
                 selectedMedia = matched?.toMediaCandidate(type),
                 previousCandidates = prevCandidates,
@@ -137,7 +137,7 @@ class EditMatchViewModel @Inject constructor(
         }
         val tvId = matched?.id ?: matched?.tmdbId
         if (type == MediaType.EPISODE && tvId != null) {
-            loadTvDetails(tvId, season ?: 1)
+            loadTvDetails(tvId, null)
         } else {
             _uiState.update { it.copy(loading = false) }
         }
@@ -148,7 +148,8 @@ class EditMatchViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 mediaType = type,
-                seasonNumber = if (type == MediaType.EPISODE) (it.seasonNumber ?: 1) else null,
+                // 默认「全部季」（null）
+                seasonNumber = null,
                 numberOfSeasons = if (type == MediaType.EPISODE) it.numberOfSeasons else null,
                 episodeList = if (type == MediaType.EPISODE) it.episodeList else emptyList(),
                 selectedEpisodeNumbers = if (type == MediaType.EPISODE) it.selectedEpisodeNumbers else emptySet(),
@@ -212,8 +213,8 @@ class EditMatchViewModel @Inject constructor(
             )
         }
         if (candidate.mediaType == MediaType.EPISODE) {
-            val parsedSeason = _uiState.value.currentMatch?.parsed?.season
-            loadTvDetails(candidate.tmdbId, parsedSeason ?: 1)
+            // 默认「全部季」（null）：仅拉取 numberOfSeasons，不加载具体集列表。
+            loadTvDetails(candidate.tmdbId, null)
         }
     }
 
@@ -270,9 +271,11 @@ class EditMatchViewModel @Inject constructor(
      * 拉取 TV 详情获取 [UiState.numberOfSeasons]，再加载 [initialSeason] 的集列表。
      *
      * 先 getTv 拿总季数（供季选择器列出 1..numberOfSeasons），再 loadSeason 加载初始季。
+     * [initialSeason] 为 null（「全部季」）时仅更新 numberOfSeasons，不加载具体集列表，
+     * 保存时由 [buildEpisodeMetadata] 遍历所有季查找匹配集号。
      * getTv 失败时仍尝试加载初始季（降级）。
      */
-    private fun loadTvDetails(tvId: Int, initialSeason: Int) {
+    private fun loadTvDetails(tvId: Int, initialSeason: Int?) {
         _uiState.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             try {
@@ -285,11 +288,11 @@ class EditMatchViewModel @Inject constructor(
                     null
                 }
                 val total = tv?.numberOfSeasons
-                // 校验初始季号是否在可用范围内；超出则回退到 1。
-                val safeSeason = if (total != null && total > 0) {
-                    if (initialSeason in 1..total) initialSeason else 1
+                // 校验初始季号是否在可用范围内；超出或为 null 时回退到「全部季」。
+                val safeSeason: Int? = if (initialSeason != null && total != null && total > 0) {
+                    if (initialSeason in 1..total) initialSeason else null
                 } else {
-                    initialSeason
+                    initialSeason // null 保留为 null（全部季）；非 null 在 total 未知时原样使用
                 }
                 _uiState.update {
                     it.copy(
@@ -297,7 +300,12 @@ class EditMatchViewModel @Inject constructor(
                         seasonNumber = safeSeason,
                     )
                 }
-                loadSeason(tvId, safeSeason)
+                if (safeSeason == null) {
+                    // 「全部季」：不加载具体集列表，保存时遍历查找
+                    _uiState.update { it.copy(loading = false) }
+                } else {
+                    loadSeason(tvId, safeSeason)
+                }
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 _uiState.update { it.copy(loading = false, error = t.message ?: "加载剧集详情失败") }
