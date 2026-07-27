@@ -40,13 +40,15 @@ class SettingsRepository @Inject constructor(
     val language: Flow<String> = context.dataStore.data.map { it[KEY_LANGUAGE] ?: DEFAULT_LANGUAGE }
 
     /**
-     * TMDB API baseUrl（自定义反代地址）。
+     * TMDB 反代地址（Cloudflare Workers Proxy 等）。
      *
-     * 为空表示用官方默认 `https://api.themoviedb.org/3/`。
-     * 用户可在设置页填自建反代地址（如 Cloudflare Workers Proxy）绕过 DNS 污染，格式需以 `/3/` 结尾。
-     * [xa.refile.data.repository.TmdbCacheRepository] 构造 TmdbClient 时读取本值。
+     * 为空表示直连官方 `api.themoviedb.org` / `image.tmdb.org`。
+     * 用户只需填 Workers 根地址（如 `https://your-worker.workers.dev/`），API 与图片请求
+     * 会自动在内部拼上官方目标地址，绕过国内 DNS 污染。
+     * - API：[xa.refile.data.repository.TmdbCacheRepository] 构造 TmdbClient 时拼接。
+     * - 图片：[xa.refile.core.tmdb.TmdbImages.proxyUrl] 由 app 启动时同步。
      */
-    val tmdbBaseUrl: Flow<String> = context.dataStore.data.map { it[KEY_TMDB_BASE_URL] ?: "" }
+    val tmdbProxyUrl: Flow<String> = context.dataStore.data.map { it[KEY_TMDB_PROXY_URL] ?: "" }
 
     /** 命名预设 ID，默认 DEFAULT。 */
     val presetId: Flow<String> = context.dataStore.data.map { it[KEY_PRESET_ID] ?: DEFAULT_PRESET }
@@ -79,9 +81,9 @@ class SettingsRepository @Inject constructor(
         context.dataStore.edit { it[KEY_LANGUAGE] = value }
     }
 
-    /** 保存 TMDB 反代 baseUrl 到 DataStore（空串表示用官方默认）。 */
-    suspend fun setTmdbBaseUrl(value: String) {
-        context.dataStore.edit { it[KEY_TMDB_BASE_URL] = value.trim() }
+    /** 保存 TMDB 反代地址到 DataStore（空串表示直连官方）。 */
+    suspend fun setTmdbProxyUrl(value: String) {
+        context.dataStore.edit { it[KEY_TMDB_PROXY_URL] = value.trim() }
     }
 
     suspend fun setPresetId(value: String) {
@@ -115,7 +117,7 @@ class SettingsRepository @Inject constructor(
         val DEFAULT_PRESET = Preset.DEFAULT.name
         private val KEY_API_KEY = stringPreferencesKey("api_key")
         private val KEY_LANGUAGE = stringPreferencesKey("language")
-        private val KEY_TMDB_BASE_URL = stringPreferencesKey("tmdb_base_url")
+        private val KEY_TMDB_PROXY_URL = stringPreferencesKey("tmdb_proxy_url")
         private val KEY_PRESET_ID = stringPreferencesKey("preset_id")
         private val KEY_TEMPLATE_STRING = stringPreferencesKey("template_string")
         private val KEY_MOVIE_TEMPLATE = stringPreferencesKey("movie_template")

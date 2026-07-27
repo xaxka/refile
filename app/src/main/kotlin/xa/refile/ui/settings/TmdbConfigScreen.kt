@@ -65,7 +65,7 @@ fun TmdbConfigScreen(
     val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
     val apiKeyValid by viewModel.apiKeyValid.collectAsStateWithLifecycle()
     val language by viewModel.language.collectAsStateWithLifecycle()
-    val tmdbBaseUrl by viewModel.tmdbBaseUrl.collectAsStateWithLifecycle()
+    val tmdbProxyUrl by viewModel.tmdbProxyUrl.collectAsStateWithLifecycle()
     val cacheCleared by viewModel.cacheCleared.collectAsStateWithLifecycle()
 
     var apiKeyInput by rememberSaveable { mutableStateOf("") }
@@ -83,14 +83,14 @@ fun TmdbConfigScreen(
     var showApiKey by rememberSaveable { mutableStateOf(false) }
 
     // 反代地址输入：初始回填已保存值，500ms debounce 持久化（与 API Key 同模式）。
-    var baseUrlInput by rememberSaveable { mutableStateOf("") }
-    LaunchedEffect(tmdbBaseUrl) {
-        if (baseUrlInput.isEmpty()) baseUrlInput = tmdbBaseUrl
+    var proxyUrlInput by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(tmdbProxyUrl) {
+        if (proxyUrlInput.isEmpty()) proxyUrlInput = tmdbProxyUrl
     }
-    LaunchedEffect(baseUrlInput) {
-        if (baseUrlInput != tmdbBaseUrl) {
+    LaunchedEffect(proxyUrlInput) {
+        if (proxyUrlInput != tmdbProxyUrl) {
             kotlinx.coroutines.delay(500)
-            viewModel.setTmdbBaseUrl(baseUrlInput)
+            viewModel.setTmdbProxyUrl(proxyUrlInput)
         }
     }
 
@@ -176,24 +176,24 @@ fun TmdbConfigScreen(
 
             HorizontalDivider()
 
-            // 反代地址：绕过 DNS 污染。空串用官方默认，填写后优先走反代。
+            // 反代地址：绕过 DNS 污染。空串直连官方，填写后 API 与图片请求都走该反代。
             Text(
                 text = "反代地址",
                 style = MaterialTheme.typography.labelLarge,
             )
             OutlinedTextField(
-                value = baseUrlInput,
-                onValueChange = { baseUrlInput = it },
-                label = { Text("如 https://your-worker.workers.dev/https://api.themoviedb.org/3/") },
+                value = proxyUrlInput,
+                onValueChange = { proxyUrlInput = it },
+                label = { Text("如 https://your-worker.workers.dev/") },
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
             )
             Text(
-                text = "留空使用官方 api.themoviedb.org。" +
+                text = "留空则直连官方 api.themoviedb.org / image.tmdb.org。" +
                     "可基于 Cloudflare Workers Proxy 部署反代（https://github.com/ymyuuu/Cloudflare-Workers-Proxy），" +
-                    "把 Workers URL 拼上 https://api.themoviedb.org/3/ 作为反代地址，用于绕过国内 DNS 污染。",
+                    "只需填 Workers 根地址，API 与图片请求会自动经它代理，用于绕过国内 DNS 污染。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

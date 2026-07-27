@@ -55,4 +55,40 @@ class TmdbImageUrlsTest {
         val url = TmdbImages.still(path = "/ep.jpg")
         assertThat(url).isEqualTo("https://image.tmdb.org/t/p/w300/ep.jpg")
     }
+
+    @Test fun `proxy prefix prepended when set`() {
+        val saved = TmdbImages.proxyUrl
+        try {
+            TmdbImages.proxyUrl = "https://your-worker.workers.dev/"
+            val url = TmdbImages.poster(path = "/abc.jpg")
+            assertThat(url)
+                .isEqualTo("https://your-worker.workers.dev/https://image.tmdb.org/t/p/w342/abc.jpg")
+        } finally {
+            TmdbImages.proxyUrl = saved
+        }
+    }
+
+    @Test fun `proxy prefix trailing slash normalized`() {
+        val saved = TmdbImages.proxyUrl
+        try {
+            // 用户填的地址缺末尾斜杠也能正确拼接
+            TmdbImages.proxyUrl = "https://your-worker.workers.dev"
+            val url = TmdbImages.backdrop(path = "/xyz.jpg")
+            assertThat(url)
+                .isEqualTo("https://your-worker.workers.dev/https://image.tmdb.org/t/p/w780/xyz.jpg")
+        } finally {
+            TmdbImages.proxyUrl = saved
+        }
+    }
+
+    @Test fun `empty proxy falls back to direct`() {
+        val saved = TmdbImages.proxyUrl
+        try {
+            TmdbImages.proxyUrl = ""
+            val url = TmdbImages.poster(path = "/abc.jpg")
+            assertThat(url).isEqualTo("https://image.tmdb.org/t/p/w342/abc.jpg")
+        } finally {
+            TmdbImages.proxyUrl = saved
+        }
+    }
 }

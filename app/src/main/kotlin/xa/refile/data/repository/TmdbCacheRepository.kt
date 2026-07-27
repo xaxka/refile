@@ -294,13 +294,18 @@ class TmdbCacheRepository @Inject constructor(
 
     // ---- 内部：TmdbClient 构造（与 MatchViewModel 原逻辑一致） ----
 
-    /** 读 apiKey + baseUrl 构造 [TmdbClient]；apiKey 为空抛 [IllegalStateException]。 */
+    /** 读 apiKey + 反代地址构造 [TmdbClient]；apiKey 为空抛 [IllegalStateException]。 */
     private suspend fun buildTmdbClient(): TmdbClient {
         val apiKey = settings.apiKey.first()
         if (apiKey.isBlank()) throw IllegalStateException("请先在设置中填入 TMDB API Key")
-        // 自定义反代地址优先：用户填了 tmdbBaseUrl 时用反代（绕过 DNS 污染），否则用官方默认。
-        val baseUrl = settings.tmdbBaseUrl.first().takeIf { it.isNotBlank() }
-            ?: TmdbClient.DEFAULT_BASE_URL
+        // 用户填了反代地址时，拼成 `proxyUrl + 官方API地址`（Cloudflare Workers Proxy 用法）；
+        // 否则直连官方默认 baseUrl。
+        val proxy = settings.tmdbProxyUrl.first().takeIf { it.isNotBlank() }
+        val baseUrl = if (proxy != null) {
+            proxy.trimEnd('/') + "/" + TmdbClient.DEFAULT_BASE_URL
+        } else {
+            TmdbClient.DEFAULT_BASE_URL
+        }
         return TmdbClient.create(sharedClient, apiKey, baseUrl)
     }
 
