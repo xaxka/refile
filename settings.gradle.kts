@@ -21,7 +21,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "WebDavMediaRenamer"
+rootProject.name = "refile"
 
 include(":core")
 include(":app")
