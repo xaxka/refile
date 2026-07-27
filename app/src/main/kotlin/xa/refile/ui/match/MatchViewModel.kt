@@ -248,14 +248,15 @@ class MatchViewModel @Inject constructor(
         filePath: String,
     ): FileMatch {
         // P2.4：IMDb ID 优先级查找
-        if (!parsed.imdbId.isNullOrBlank()) {
+        val imdbId = parsed.imdbId
+        if (!imdbId.isNullOrBlank()) {
             val findMediaType = when (type) {
                 MatchType.MOVIE -> MediaType.MOVIE
                 MatchType.TV -> MediaType.EPISODE
                 MatchType.AUTO -> null
             }
             val found = try {
-                tmdbCache.findByImdbId(parsed.imdbId, findMediaType, language)
+                tmdbCache.findByImdbId(imdbId, findMediaType, language)
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 null
