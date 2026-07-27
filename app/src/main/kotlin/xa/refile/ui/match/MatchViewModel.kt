@@ -278,7 +278,7 @@ class MatchViewModel @Inject constructor(
         val title = parsed.title?.takeIf { it.isNotBlank() } ?: ""
         // P2.6：主标题 + 别名分别搜 TMDB，合并去重候选（中英混合文件名 `寒战1994 Cold War` 场景）。
         val searchTitles = listOf(title) + parsed.titleAliases.filter { it.isNotBlank() }
-        val seenIds = mutableSetOf<Int>()
+        val seenIds = mutableSetOf<Int?>()
         val searchResults = buildList {
             searchTitles.forEach { q ->
                 val rs = if (type == MatchType.TV) {
