@@ -31,7 +31,7 @@ jobs:
           java-version: '17'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@v4
         with:
           # main 分支可写缓存供其它分支/PR 复用；非 main 分支只读，避免缓存污染
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
