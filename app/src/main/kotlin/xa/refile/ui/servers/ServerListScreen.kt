@@ -79,14 +79,14 @@ fun ServerListScreen(
             TopAppBar(
                 title = {},
                 actions = {
+                    IconButton(onClick = onAddServer) {
+                        Icon(Icons.Default.Add, contentDescription = "添加服务器")
+                    }
                     IconButton(onClick = onOpenHistory) {
                         Icon(Icons.Default.History, contentDescription = "历史记录")
                     }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "设置")
-                    }
-                    IconButton(onClick = onAddServer) {
-                        Icon(Icons.Default.Add, contentDescription = "添加服务器")
                     }
                 },
             )
