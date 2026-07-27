@@ -278,24 +278,28 @@ class MatchViewModel @Inject constructor(
         // matchByIds 内部检查 parsed 是否携带任一 ID；未携带或 lookup 返回 null 时返回 null，调用方回退。
         var hitMeta: MediaMetadata? = null
         val idDecision = engine.matchByIds(parsed) { p ->
+            // 局部 val 可被智能转换；跨模块 public 属性不可智能转换，故先取值到局部变量
+            val tmdbId = p.tmdbId
+            val tvdbId = p.tvdbId
+            val imdbId = p.imdbId
             val hit: MediaMetadata? = when {
                 // tmdbId 短路：MediaType 必须确定，AUTO 时按 parsed.season/episodes 推断
-                p.tmdbId != null -> try {
-                    tmdbCache.findByTmdbId(p.tmdbId, tmdbMediaType(p, type), language)
+                tmdbId != null -> try {
+                    tmdbCache.findByTmdbId(tmdbId, tmdbMediaType(p, type), language)
                 } catch (t: Throwable) {
                     if (t is kotlinx.coroutines.CancellationException) throw t
                     null
                 }
                 // tvdbId 短路：MediaType 可为 null（让 TmdbClient 自己分桶）
-                p.tvdbId != null -> try {
-                    tmdbCache.findByTvdbId(p.tvdbId, nullableMediaType(type), language)
+                tvdbId != null -> try {
+                    tmdbCache.findByTvdbId(tvdbId, nullableMediaType(type), language)
                 } catch (t: Throwable) {
                     if (t is kotlinx.coroutines.CancellationException) throw t
                     null
                 }
                 // imdbId 短路：保留 P2.4 原行为，AUTO 时传 null
-                !p.imdbId.isNullOrBlank() -> try {
-                    tmdbCache.findByImdbId(p.imdbId!!, nullableMediaType(type), language)
+                !imdbId.isNullOrBlank() -> try {
+                    tmdbCache.findByImdbId(imdbId, nullableMediaType(type), language)
                 } catch (t: Throwable) {
                     if (t is kotlinx.coroutines.CancellationException) throw t
                     null
