@@ -432,12 +432,12 @@ class FilenameParser {
     }
 
     // ---- 年份 ----
-    // 文件名含多个 4 位年份时（如 `Cold.War.1994.2026.2160p...`，1994 为原作/片中年份，
-    // 2026 为发行版年份）取最后一个有效年份：发行版年份通常紧挨分辨率等技术标签，
-    // 用它搜 TMDB 命中率更高。单年份场景不受影响（只有一个匹配）。
+    // 文件名含多个 4 位年份时（如 `Cold.War.1994.2026.2160p...`，1994 为原作上映年份，
+    // 2026 为发行版/压制年份）取第一个有效年份：TMDB 收录的是原作上映年，
+    // 用它搜命中率更高；发行版年份通常是压制者加上去的，并非电影真实年份。
+    // 单年份场景不受影响（只有一个匹配）。
     private fun parseYear(input: String): Int? {
-        val matches = YEAR.findAll(input).toList()
-        for (m in matches.asReversed()) {
+        for (m in YEAR.findAll(input)) {
             val y = m.value.toInt()
             if (y in 1900..2099) return y
         }
@@ -539,6 +539,13 @@ class FilenameParser {
      * P0.1：用 [ReleaseInfoDictionary] 词表分词判定标题边界。
      * 从尾部向前找第一个非停用词 token，标题 = `[0, firstStopIndex)`。
      * 软停用词仅当其后还有更多内容时才剥离。
+     *
+     * 额外处理两类归一化后产生的技术片段（`H.265`→`H 265`、`DTS5.1`→`DTS5 1`）：
+     * - 纯数字 token（如 `265`、`1`）：视为技术参数片段剥离，但仅当保留区仍有非数字 token
+     *   时生效，避免误剥「1917」「2046」这类纯数字标题。
+     * - 字母+数字 token（如 `DTS5`、`DDP5`、`x265`）：匹配 `[a-z]{2,}\d+` 视为编解码器片段剥离。
+     * - 单个 ASCII 字母 token（如 `H.265` 拆出的 `H`）：仅当其后已剥过技术 token 且前面还有
+     *   至少一个 token 时视为片段，避免误剥 `H.2002.mkv` 这类单字母标题。
      */
     private fun stripTechByStopwords(s: String, ignored: Boolean): String {
         // 用非字母数字作为分隔符切分（保留中文连续字符段）
@@ -559,6 +566,28 @@ class FilenameParser {
                 firstStopFromTail = i
                 continue
             }
+            // 编解码器片段：字母(≥2)+数字（如 DTS5、DDP5、x265、H265 已在词表但此处兜底）。
+            // 仅当 i > 0 时剥离，避免误剥 `Area51` 这类字母+数字构成的完整标题。
+            if (i > 0 && CODEC_DIGIT.matches(tok)) {
+                firstStopFromTail = i
+                continue
+            }
+            // 纯数字 token（如 DTS5.1 拆出的 1、H.265 拆出的 265）：
+            // 仅当保留区 [0, i) 仍有非数字 token 时才剥离，避免误剥纯数字标题「1917」「2046」。
+            if (tok.all { it.isDigit() } && i > 0 &&
+                (0 until i).any { j -> !tokens[j].trim().all { c -> c.isDigit() } }
+            ) {
+                firstStopFromTail = i
+                continue
+            }
+            // 单个 ASCII 字母 token（如 H.265 拆出的 H）：
+            // 仅当其后已剥过技术 token 且前面还有 token 时视为片段，避免误剥单字母标题 `H`。
+            if (tok.length == 1 && tok[0].isAsciiLetter() &&
+                firstStopFromTail < tokens.size && i >= 1
+            ) {
+                firstStopFromTail = i
+                continue
+            }
             // 遇到第一个非停用词 token，停止
             break
         }
@@ -570,6 +599,8 @@ class FilenameParser {
 
     private fun normalizeWhitespace(s: String, ignored: Boolean): String =
         s.replace(Regex("\\s+"), " ").trim()
+
+    private fun Char.isAsciiLetter(): Boolean = this in 'a'..'z' || this in 'A'..'Z'
 
     // ---- 版本标签 ----
     private fun parseVersion(input: String): String? = VERSION_TAG.find(input)?.value
@@ -700,6 +731,8 @@ class FilenameParser {
         private val PART_SUFFIX = Regex("[\\-\\._]([a-d])$")
         // 集名/副标题分隔符：` - `（前后带空格的横线），如 `剧名 S01E01 - 集名` 中的 ` - `。
         private val EPISODE_TITLE_SEP = Regex("\\s-\\s")
+        // 编解码器片段：2+ 字母后接数字（如 DTS5、DDP5、x265），用于标题尾部技术词剥离兜底。
+        private val CODEC_DIGIT = Regex("(?i)^[a-z]{2,}\\d+$")
 
         // P1.2：HDR / 3D 正则
         private val HDR10_PLUS = Regex("(?i)(?<![A-Za-z0-9])(HDR10\\+|HDR10Plus)(?![A-Za-z0-9])")

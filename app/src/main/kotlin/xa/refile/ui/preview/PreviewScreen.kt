@@ -98,7 +98,7 @@ private val MinTouchSize = 44.dp
  * - 卡片三段式：标题行（剧名+集号+状态徽章）→ 上下两行重命名（旧名 → 新名，新名完整显示不截断）
  *   → 操作行（重新匹配 / 伴随 / 排除，统一线性图标，44dp 触控热区）。
  * - 卡片圆角 12pt、间距 12pt、页面边距 16pt；同屏主色不超过 2 个（品牌橙 + 状态语义色）。
- * - 底部按钮把可执行数量并入文案「执行重命名（N）」。
+ * - 底部按钮把可执行数量并入文案「执行（N）」。
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -460,7 +460,7 @@ private fun FilterChipPill(
 }
 
 /**
- * 底部操作栏：把可执行数量并入按钮文案「执行重命名（N）」。
+ * 底部操作栏：把可执行数量并入按钮文案「执行（N）」。
  */
 @Composable
 private fun BottomActionBar(
@@ -482,7 +482,7 @@ private fun BottomActionBar(
         ) {
             Icon(Icons.Outlined.PlayArrow, contentDescription = null)
             Spacer(Modifier.width(6.dp))
-            Text("执行重命名（$executableCount）")
+            Text("执行（$executableCount）")
         }
     }
 }

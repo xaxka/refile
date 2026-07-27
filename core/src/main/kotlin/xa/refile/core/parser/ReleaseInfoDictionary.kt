@@ -51,6 +51,7 @@ object ReleaseInfoDictionary {
         "forced", "default", "sdh", "cc",
         // Common release tags
         "internal", "readnfo", "nfo", "sample", "proof",
+        "hq", "yk", "youku",
     )
 
     /**
