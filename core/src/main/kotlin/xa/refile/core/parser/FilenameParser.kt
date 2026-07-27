@@ -129,8 +129,10 @@ class FilenameParser {
     /**
      * P2.6：中英混合标题拆分。
      *
-     * 当清洗后的标题同时含 CJK 段与 ASCII 段（如 `寒战1994 Cold War`）时，按 CJK/Latin 边界
-     * 拆成多段。第一段（含 CJK 的优先）作为 [ParsedFilename.title]，其余段作为 [ParsedFilename.titleAliases]。
+     * 当清洗后的标题同时含 CJK 段与 ASCII 段（如 `寒战1994 Cold War`）时，按空白分词后
+     * 依"是否含 CJK"分组连续 token：含 CJK 的 token（含其内部紧贴的数字，如 `寒战1994`）
+     * 与纯 ASCII token 各自合并成段。第一段（含 CJK 的优先）作为 [ParsedFilename.title]，
+     * 其余段作为 [ParsedFilename.titleAliases]。
      *
      * 拆分后匹配器会分别用主标题与别名搜 TMDB，合并候选后由评分器取最高分，避免混合串搜不到。
      * 纯 CJK 或纯 ASCII 标题不受影响（aliases 为空）。
@@ -141,10 +143,24 @@ class FilenameParser {
         val hasCjk = title.any { it.isCjk() }
         val hasAscii = title.any { it.isAsciiLetter() }
         if (!hasCjk || !hasAscii) return title to emptyList()
-        // 按连续 CJK / 连续非CJK（ASCII+数字）边界切分
-        val segments = CJK_LATIN_BOUNDARY.split(title)
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
+        // 按空白拆 token，连续同性质（含/不含 CJK）的 token 合并为一段。
+        // 关键：CJK token 内部紧贴的数字（如 `寒战1994`）不再被 Han↔digit 边界拆开。
+        val tokens = title.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (tokens.isEmpty()) return title to emptyList()
+        val segments = mutableListOf<String>()
+        var current = StringBuilder(tokens[0])
+        var currentHasCjk = tokens[0].any { it.isCjk() }
+        for (tok in tokens.drop(1)) {
+            val tokHasCjk = tok.any { it.isCjk() }
+            if (tokHasCjk != currentHasCjk) {
+                segments.add(current.toString().trim())
+                current = StringBuilder()
+                currentHasCjk = tokHasCjk
+            }
+            if (current.isNotEmpty()) current.append(' ')
+            current.append(tok)
+        }
+        if (current.isNotEmpty()) segments.add(current.toString().trim())
         if (segments.size <= 1) return title to emptyList()
         // 主标题取第一个含 CJK 的段（中文片名优先），其余为别名
         val primary = segments.firstOrNull { it.any { c -> c.isCjk() } } ?: segments.first()
@@ -766,9 +782,6 @@ class FilenameParser {
         private val EPISODE_TITLE_SEP = Regex("\\s-\\s")
         // 编解码器片段：2+ 字母后接数字（如 DTS5、DDP5、x265），用于标题尾部技术词剥离兜底。
         private val CODEC_DIGIT = Regex("(?i)^[a-z]{2,}\\d+$")
-        // P2.6：CJK 与 ASCII（含数字）边界，用于拆分中英混合标题（`寒战1994 Cold War` → `寒战1994`/`Cold War`）。
-        // 在 CJK 与 ASCII 字母/数字的交界处插入分割点。
-        private val CJK_LATIN_BOUNDARY = Regex("(?<=\\p{script=Han})(?=[A-Za-z0-9])|(?<=[A-Za-z0-9])(?=\\p{script=Han})")
 
         // P1.2：HDR / 3D 正则
         private val HDR10_PLUS = Regex("(?i)(?<![A-Za-z0-9])(HDR10\\+|HDR10Plus)(?![A-Za-z0-9])")

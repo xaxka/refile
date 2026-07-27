@@ -9,6 +9,11 @@ on:
 permissions:
   contents: write
 
+# 同分支连推时取消旧 run，节省 CI 资源
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-release:
     runs-on: ubuntu-latest
@@ -27,12 +32,16 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          # main 分支可写缓存供其它分支/PR 复用；非 main 分支只读，避免缓存污染
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          gradle-home-cache-cleanup: true
 
       - name: Run :core JVM tests
-        run: ./gradlew :core:test --console=plain
+        run: ./gradlew :core:test --console=plain --build-cache --parallel
 
       - name: Build release APK
-        run: ./gradlew :app:assembleRelease --console=plain
+        run: ./gradlew :app:assembleRelease --console=plain --build-cache --parallel
 
       - name: Upload release APK artifact
         uses: actions/upload-artifact@v4
@@ -42,12 +51,14 @@ jobs:
           if-no-files-found: error
 
       - name: Delete previous dev release & tag
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release delete dev --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" || true
 
       - name: Publish dev build to GitHub Releases
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: dev
