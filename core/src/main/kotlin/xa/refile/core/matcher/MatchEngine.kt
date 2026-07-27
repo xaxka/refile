@@ -63,7 +63,12 @@ class ConfidenceScorer(
 
     fun score(parsed: ParsedFilename, candidate: MatchCandidate): Double {
         val title = parsed.title ?: return 0.0
-        val titleScore = computeTitleScore(title, candidate)
+        // P2.6：中英混合标题拆分后，用主标题与所有别名分别打分取 max ——
+        // `寒战1994` 与 TMDB 候选 `寒战1994` 命中，`Cold War` 与候选 `Cold War` 命中。
+        val titleScore = maxOf(
+            computeTitleScore(title, candidate),
+            *parsed.titleAliases.map { computeTitleScore(it, candidate) }.toDoubleArray(),
+        )
         val yPenalty = yearPenalty(parsed.year, candidate.year)
         val popBonus = candidate.popularity.coerceAtMost(MAX_POP).let { it / MAX_POP * POP_WEIGHT }
         val sxeBonus = sxeBonus(parsed, candidate) // P2.2

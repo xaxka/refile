@@ -421,6 +421,27 @@ class FilenameParserTest {
         assertThat(r.year).isEqualTo(2009)
     }
 
+    @Test fun `multi year movie with h265 dts5 dot 1 tech tail cleans to title and last year`() {
+        val r = parser.parse("Cold.War.1994.2026.2160p.YK.WEB-DL.H.265.DV.HQ.DTS5.1-PandaQT.mkv")
+        assertThat(r.title).isEqualTo("Cold War")
+        assertThat(r.year).isEqualTo(2026)
+        assertThat(r.mediaType).isEqualTo(MediaType.MOVIE)
+        assertThat(r.resolution).isEqualTo("2160p")
+        assertThat(r.source).isEqualTo("WEB-DL")
+    }
+
+    @Test fun `chinese english mixed title with h265 dts tech tail cleans correctly`() {
+        // `寒战1994` 中 1994 紧跟汉字，视为标题一部分不剥离；`Cold.War.1994` 中点分隔的 1994
+        // 仍识别为年份并被剥离；year 取最后一个有效年份 2026。
+        // 中英混合标题按 CJK/Latin 边界拆分：title="寒战1994"，aliases=["Cold War"]，
+        // 匹配器分别搜两段再合并候选。
+        val r = parser.parse("寒战1994.Cold.War.1994.2026.2160p.HQ.WEB-DL.H265.HDR.DTS-QuickIO.mkv")
+        assertThat(r.title).isEqualTo("寒战1994")
+        assertThat(r.titleAliases).containsExactly("Cold War")
+        assertThat(r.year).isEqualTo(2026)
+        assertThat(r.mediaType).isEqualTo(MediaType.MOVIE)
+    }
+
     // ---- P0.2 多集区间上限保护 ----
 
     @Test fun `episode range over limit keeps only start`() {

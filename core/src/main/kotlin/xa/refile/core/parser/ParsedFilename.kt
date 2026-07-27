@@ -43,6 +43,8 @@ data class ParsedFilename(
     val subtitleInfo: SubtitleInfo? = null,
     // P2.5 附加内容类型
     val extraType: ExtraType? = null,
+    // P2.6 标题别名（中英混合文件名拆分出的其它语言段，如 `寒战1994 Cold War` → aliases=["Cold War"]）
+    val titleAliases: List<String> = emptyList(),
 ) {
     /** 是否多集文件。 */
     val isMultiEpisode: Boolean get() = episodes.size > 1

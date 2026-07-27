@@ -134,7 +134,7 @@ fun EditMatchScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
-                title = { Text("编辑匹配") },
+                title = { Text("匹配") },
                 actions = {
                     IconButton(
                         onClick = viewModel::applyEdit,
@@ -238,19 +238,6 @@ private fun SingleMultiView(
                 onClick = onEnterReselect,
             )
             Spacer(Modifier.height(8.dp))
-            Text(
-                text = "已选 ${state.selectedEpisodeNumbers.size} 集",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            // 「全部季」时不加载具体集列表，提示用户保存时会遍历所有季匹配所选集号。
-            if (state.seasonNumber == null) {
-                Text(
-                    text = "已选「全部季」：保存时将遍历所有季查找所选集号（依据文件名解析的集号）",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
             EpisodesPanel(
                 modifier = Modifier.weight(1f),
                 episodes = state.episodeList,
@@ -342,8 +329,8 @@ private fun MediaSearchSection(
     onSetSeason: (Int?) -> Unit,
 ) {
     Column(modifier = modifier) {
-        // 季选择器：剧集态 + 已知总季数时展示（移入重新选择视图，与搜索同区）
-        if (mediaType == MediaType.EPISODE && numberOfSeasons != null) {
+        // 季选择器：剧集态展示（numberOfSeasons 未拉取时仅展示「全部季」选项）
+        if (mediaType == MediaType.EPISODE) {
             SeasonPicker(
                 season = seasonNumber,
                 numberOfSeasons = numberOfSeasons,

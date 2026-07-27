@@ -22,7 +22,6 @@ import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material3.Card
@@ -66,7 +65,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
  * @param onOpenTemplateEditor 跳转模板编辑器。
  * @param onOpenBackup 跳转备份与恢复。
  * @param onOpenHostsSettings 跳转 Hosts 设置。
- * @param onOpenHistorySettings 跳转历史记录设置。
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -76,7 +74,6 @@ fun SettingsScreen(
     onOpenTemplateEditor: () -> Unit,
     onOpenBackup: () -> Unit,
     onOpenHostsSettings: () -> Unit,
-    onOpenHistorySettings: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val versionName by viewModel.versionName.collectAsStateWithLifecycle()
@@ -95,7 +92,6 @@ fun SettingsScreen(
                 SettingsNavEvent.OpenTemplateEditor -> onOpenTemplateEditor()
                 SettingsNavEvent.OpenBackup -> onOpenBackup()
                 SettingsNavEvent.OpenHostsSettings -> onOpenHostsSettings()
-                SettingsNavEvent.OpenHistorySettings -> onOpenHistorySettings()
                 SettingsNavEvent.PickLogFile ->
                     logLauncher.launch("refile-error-${System.currentTimeMillis()}.log")
             }
@@ -161,12 +157,6 @@ fun SettingsScreen(
                         title = "备份与恢复",
                         subtitle = "导出/导入设置与服务器",
                         onClick = viewModel::openBackup,
-                    )
-                    SettingsRow(
-                        icon = Icons.Default.History,
-                        title = "历史记录",
-                        subtitle = "保留条数与自动清理",
-                        onClick = viewModel::openHistorySettings,
                     )
                 }
             }

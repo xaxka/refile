@@ -27,8 +27,6 @@ import javax.inject.Singleton
  * - [episodeTemplateString]：剧集模板字符串（测试反馈 Item 9）。
  * - [visualOptions]：命名可视化选项（分隔符/大小写/非法字符处理/补零位数，Task 3.3）。
  * - [hostsConfig]：自定义 Hosts 配置（开关 + 域名→IP 条目，Task 5.3.5），以 JSON 字符串持久化。
- * - [historyMaxCount]：历史记录保留条数上限（0=不限）。
- * - [historyAutoClearDays]：自动清理多少天前的历史（0=不清理）。
  *
  * 用 `@Inject constructor` + `@Singleton`，Hilt 直接构造，无需 @Provides。
  * DataStore 通过顶层 [Context.dataStore] 扩展按进程单例创建。
@@ -90,13 +88,6 @@ class SettingsRepository @Inject constructor(
             runCatching { hostsJson.decodeFromString<HostsConfig>(json) }.getOrNull()
         } ?: HostsConfig()
     }
-
-    /** 历史记录保留条数上限；0 表示不限（默认）。 */
-    val historyMaxCount: Flow<Int> = context.dataStore.data.map { it[KEY_HISTORY_MAX_COUNT] ?: 0 }
-
-    /** 自动清理多少天前的历史；0 表示不清理（默认）。 */
-    val historyAutoClearDays: Flow<Int> =
-        context.dataStore.data.map { it[KEY_HISTORY_AUTO_CLEAR_DAYS] ?: 0 }
 
     /**
      * 运行时临时禁用 hosts 的内存状态（不持久化）。
@@ -176,16 +167,6 @@ class SettingsRepository @Inject constructor(
         context.dataStore.edit { it[KEY_HOSTS_CONFIG] = json }
     }
 
-    /** 保存历史记录保留条数上限（0=不限）。 */
-    suspend fun setHistoryMaxCount(value: Int) {
-        context.dataStore.edit { it[KEY_HISTORY_MAX_COUNT] = value.coerceAtLeast(0) }
-    }
-
-    /** 保存自动清理多少天前的历史（0=不清理）。 */
-    suspend fun setHistoryAutoClearDays(value: Int) {
-        context.dataStore.edit { it[KEY_HISTORY_AUTO_CLEAR_DAYS] = value.coerceAtLeast(0) }
-    }
-
     private companion object {
         const val DEFAULT_LANGUAGE = "zh-CN"
         val DEFAULT_PRESET = Preset.DEFAULT.name
@@ -198,8 +179,6 @@ class SettingsRepository @Inject constructor(
         private val KEY_EPISODE_TEMPLATE = stringPreferencesKey("episode_template")
         private val KEY_PAD_DIGITS = intPreferencesKey("visual_pad_digits")
         private val KEY_HOSTS_CONFIG = stringPreferencesKey("hosts_config")
-        private val KEY_HISTORY_MAX_COUNT = intPreferencesKey("history_max_count")
-        private val KEY_HISTORY_AUTO_CLEAR_DAYS = intPreferencesKey("history_auto_clear_days")
 
         /** Hosts 配置 JSON 实例（容错：未知字段忽略，便于备份文件向前兼容）。 */
         private val hostsJson = Json {

@@ -95,11 +95,13 @@ class FilenameParser {
             stripAbsoluteEp = (year == null && seasonEpisode.isAbsolute),
             knownGroup = tech.group,
         )
+        // 9b. P2.6：中英混合标题拆分别名（`寒战1994 Cold War` → title="寒战1994", aliases=["Cold War"]）
+        val (primaryTitle, titleAliases) = splitTitleAliases(title?.takeIf { it.isNotBlank() })
         // 10. 推断媒体类型
         val mediaType = if (seasonEpisode.hasSeasonOrEpisode()) MediaType.EPISODE else MediaType.MOVIE
 
         return ParsedFilename(
-            title = title?.takeIf { it.isNotBlank() },
+            title = primaryTitle,
             year = year,
             season = seasonEpisode.season,
             episodes = seasonEpisode.episodes,
@@ -120,7 +122,34 @@ class FilenameParser {
             streamingSource = streamingSource,
             subtitleInfo = subtitleInfo,
             extraType = extraType,
+            titleAliases = titleAliases,
         )
+    }
+
+    /**
+     * P2.6：中英混合标题拆分。
+     *
+     * 当清洗后的标题同时含 CJK 段与 ASCII 段（如 `寒战1994 Cold War`）时，按 CJK/Latin 边界
+     * 拆成多段。第一段（含 CJK 的优先）作为 [ParsedFilename.title]，其余段作为 [ParsedFilename.titleAliases]。
+     *
+     * 拆分后匹配器会分别用主标题与别名搜 TMDB，合并候选后由评分器取最高分，避免混合串搜不到。
+     * 纯 CJK 或纯 ASCII 标题不受影响（aliases 为空）。
+     */
+    private fun splitTitleAliases(title: String?): Pair<String?, List<String>> {
+        if (title.isNullOrBlank()) return null to emptyList()
+        // 仅当标题同时含 CJK 与 ASCII 字母时才拆分
+        val hasCjk = title.any { it.isCjk() }
+        val hasAscii = title.any { it.isAsciiLetter() }
+        if (!hasCjk || !hasAscii) return title to emptyList()
+        // 按连续 CJK / 连续非CJK（ASCII+数字）边界切分
+        val segments = CJK_LATIN_BOUNDARY.split(title)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        if (segments.size <= 1) return title to emptyList()
+        // 主标题取第一个含 CJK 的段（中文片名优先），其余为别名
+        val primary = segments.firstOrNull { it.any { c -> c.isCjk() } } ?: segments.first()
+        val aliases = segments.filter { it != primary }
+        return primary to aliases
     }
 
     // ---- 扩展名 ----
@@ -539,6 +568,13 @@ class FilenameParser {
      * P0.1：用 [ReleaseInfoDictionary] 词表分词判定标题边界。
      * 从尾部向前找第一个非停用词 token，标题 = `[0, firstStopIndex)`。
      * 软停用词仅当其后还有更多内容时才剥离。
+     *
+     * 额外处理两类归一化后产生的技术片段（`H.265`→`H 265`、`DTS5.1`→`DTS5 1`）：
+     * - 纯数字 token（如 `265`、`1`）：视为技术参数片段剥离，但仅当保留区仍有非数字 token
+     *   时生效，避免误剥「1917」「2046」这类纯数字标题。
+     * - 字母+数字 token（如 `DTS5`、`DDP5`、`x265`）：匹配 `[a-z]{2,}\d+` 视为编解码器片段剥离。
+     * - 单个 ASCII 字母 token（如 `H.265` 拆出的 `H`）：仅当其后已剥过技术 token 且前面还有
+     *   至少一个 token 时视为片段，避免误剥 `H.2002.mkv` 这类单字母标题。
      */
     private fun stripTechByStopwords(s: String, ignored: Boolean): String {
         // 用非字母数字作为分隔符切分（保留中文连续字符段）
@@ -559,6 +595,28 @@ class FilenameParser {
                 firstStopFromTail = i
                 continue
             }
+            // 编解码器片段：字母(≥2)+数字（如 DTS5、DDP5、x265、H265 已在词表但此处兜底）。
+            // 仅当 i > 0 时剥离，避免误剥 `Area51` 这类字母+数字构成的完整标题。
+            if (i > 0 && CODEC_DIGIT.matches(tok)) {
+                firstStopFromTail = i
+                continue
+            }
+            // 纯数字 token（如 DTS5.1 拆出的 1、H.265 拆出的 265）：
+            // 仅当保留区 [0, i) 仍有非数字 token 时才剥离，避免误剥纯数字标题「1917」「2046」。
+            if (tok.all { it.isDigit() } && i > 0 &&
+                (0 until i).any { j -> !tokens[j].trim().all { c -> c.isDigit() } }
+            ) {
+                firstStopFromTail = i
+                continue
+            }
+            // 单个 ASCII 字母 token（如 H.265 拆出的 H）：
+            // 仅当其后已剥过技术 token 且前面还有 token 时视为片段，避免误剥单字母标题 `H`。
+            if (tok.length == 1 && tok[0].isAsciiLetter() &&
+                firstStopFromTail < tokens.size && i >= 1
+            ) {
+                firstStopFromTail = i
+                continue
+            }
             // 遇到第一个非停用词 token，停止
             break
         }
@@ -570,6 +628,10 @@ class FilenameParser {
 
     private fun normalizeWhitespace(s: String, ignored: Boolean): String =
         s.replace(Regex("\\s+"), " ").trim()
+
+    private fun Char.isAsciiLetter(): Boolean = this in 'a'..'z' || this in 'A'..'Z'
+
+    private fun Char.isCjk(): Boolean = Character.UnicodeScript.of(this.code) == Character.UnicodeScript.HAN
 
     // ---- 版本标签 ----
     private fun parseVersion(input: String): String? = VERSION_TAG.find(input)?.value
@@ -682,7 +744,9 @@ class FilenameParser {
         // 已知技术词数字（分辨率高度等），用于绝对集号二次过滤
         private val TECH_NUMBERS = setOf(720, 480, 540, 360, 240, 1080, 2160, 4320)
         private val DAILY_SHOW = Regex("(?<!\\d)(19|20)\\d{2}[._-](0?[1-9]|1[0-2])[._-]([0-2]?[0-9]|3[01])(?!\\d)")
-        private val YEAR = Regex("(?<!\\d)(19\\d{2}|20\\d{2})(?!\\d)")
+        // 年份：前后不能是数字；前面也不能是汉字（否则视为标题的一部分，如 `寒战1994`）。
+        // 这样 `寒战1994` 中的 1994 不被识别为独立年份，而 `Cold.War.1994` 中点分隔的 1994 仍被识别。
+        private val YEAR = Regex("(?<!\\d)(?<!\\p{script=Han})(19\\d{2}|20\\d{2})(?!\\d)")
         private val YEAR_IN_PARENS = Regex("(?i)(19\\d{2}|20\\d{2})")
         // B9: 不能用 \b——下划线是 \w 字符，\b 不会在 _ 与字母/数字间匹配，
         // 导致下划线分隔文件名（The_Last_of_Us_S01E02_1080p_WEB-DL_x264）的 _1080p/_WEB-DL/_x264
@@ -700,6 +764,11 @@ class FilenameParser {
         private val PART_SUFFIX = Regex("[\\-\\._]([a-d])$")
         // 集名/副标题分隔符：` - `（前后带空格的横线），如 `剧名 S01E01 - 集名` 中的 ` - `。
         private val EPISODE_TITLE_SEP = Regex("\\s-\\s")
+        // 编解码器片段：2+ 字母后接数字（如 DTS5、DDP5、x265），用于标题尾部技术词剥离兜底。
+        private val CODEC_DIGIT = Regex("(?i)^[a-z]{2,}\\d+$")
+        // P2.6：CJK 与 ASCII（含数字）边界，用于拆分中英混合标题（`寒战1994 Cold War` → `寒战1994`/`Cold War`）。
+        // 在 CJK 与 ASCII 字母/数字的交界处插入分割点。
+        private val CJK_LATIN_BOUNDARY = Regex("(?<=\\p{script=Han})(?=[A-Za-z0-9])|(?<=[A-Za-z0-9])(?=\\p{script=Han})")
 
         // P1.2：HDR / 3D 正则
         private val HDR10_PLUS = Regex("(?i)(?<![A-Za-z0-9])(HDR10\\+|HDR10Plus)(?![A-Za-z0-9])")

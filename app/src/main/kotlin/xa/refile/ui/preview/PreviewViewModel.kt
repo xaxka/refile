@@ -113,12 +113,15 @@ class PreviewViewModel @Inject constructor(
         val filter: StatusFilter = StatusFilter.ALL,
         val error: String? = null,
     ) {
-        /** 经当前 [filter] 过滤后的可见项（LazyColumn 渲染依据）。 */
+        /** 经当前 [filter] 过滤后的可见项（LazyColumn 渲染依据），按文件名排序。 */
         val activeItems: List<PreviewItem>
-            get() = when (filter) {
-                StatusFilter.ALL -> previewItems
-                StatusFilter.UNMATCHED -> previewItems.filter { it.status == PreviewStatus.NEEDS_CONFIRM }
-                StatusFilter.CONFLICT -> previewItems.filter { it.status == PreviewStatus.CONFLICT }
+            get() {
+                val filtered = when (filter) {
+                    StatusFilter.ALL -> previewItems
+                    StatusFilter.UNMATCHED -> previewItems.filter { it.status == PreviewStatus.NEEDS_CONFIRM }
+                    StatusFilter.CONFLICT -> previewItems.filter { it.status == PreviewStatus.CONFLICT }
+                }
+                return filtered.sortedBy { it.sourcePath.substringAfterLast('/') }
             }
 
         /** 自动✅ 数（不受 [filter] 影响，用于顶部摘要）。 */

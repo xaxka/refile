@@ -12,7 +12,6 @@ import kotlinx.coroutines.launch
 import xa.refile.core.backup.HostPresets
 import xa.refile.core.backup.HostsSpeedTest
 import xa.refile.data.prefs.SettingsRepository
-import xa.refile.data.repository.HistoryRepository
 import javax.inject.Inject
 
 /**
@@ -44,9 +43,6 @@ class RefileApp : Application(), Configuration.Provider {
     @Inject
     lateinit var hostsSpeedTest: HostsSpeedTest
 
-    @Inject
-    lateinit var historyRepository: HistoryRepository
-
     /** 应用级协程作用域，用于启动时的 hosts 自动检测等后台任务。 */
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -58,8 +54,6 @@ class RefileApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         checkHostsNecessityOnStartup()
-        // 启动时按保留策略清理一次过期/超量历史（设置项 historyMaxCount / historyAutoClearDays）。
-        appScope.launch { historyRepository.cleanupOnStartup() }
     }
 
     /**
