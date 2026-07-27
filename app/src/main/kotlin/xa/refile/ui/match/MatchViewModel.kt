@@ -286,7 +286,7 @@ class MatchViewModel @Inject constructor(
                 } else {
                     tmdbCache.searchMovie(q, parsed.year, language)
                 }
-                rs.forEach { if (it.id != null && seenIds.add(it.id)) add(it) }
+                rs.forEach { if (seenIds.add(it.id)) add(it) }
             }
         }
         val candidates = searchResults.map { it.toMatchCandidate() }
