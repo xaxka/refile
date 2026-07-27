@@ -135,8 +135,7 @@ class RenameWorker @AssistedInject constructor(
      *   scheme/host/port/路径（如 `https://dav.example.com:8443/dav`）时直接 trim 末尾
      *   斜杠返回，不再用 https/port 字段二次拼装，避免生成 `host:8443/path:8443` 这种
      *   重复端口的非法 URL。
-     * - 通过 HostsDnsFactory 把 hosts 解析挂到 OkHttpClient（开关关闭或 hostname 未命中时
-     *   回退系统 DNS），与 ServerRepository.clientFor 保持一致。
+     * - 与 ServerRepository.clientFor 共用同一套 OkHttpClient 构造逻辑。
      */
     private suspend fun buildClient(entity: ServerConfigEntity): WebDavClient =
         serverRepo.clientFor(entity)

@@ -20,7 +20,6 @@ import xa.refile.ui.progress.ProgressScreen
 import xa.refile.ui.servers.ServerEditScreen
 import xa.refile.ui.servers.ServerListScreen
 import xa.refile.ui.settings.BackupScreen
-import xa.refile.ui.settings.HostsSettingsScreen
 import xa.refile.ui.settings.SettingsScreen
 import xa.refile.ui.settings.TemplateEditorScreen
 import xa.refile.ui.settings.TmdbConfigScreen
@@ -66,9 +65,6 @@ object Routes {
     /** 模板编辑器路由（Task 3.3）。从设置页跳转。 */
     const val TEMPLATE_EDITOR = "template_editor"
 
-    /** Hosts 设置路由（Task 5.3.4/5.3.5）。从设置页跳转。 */
-    const val HOSTS_SETTINGS = "hosts_settings"
-
     /** 历史记录路由（Task 5.1.3）。单页承载列表 + 详情展开/折叠。 */
     const val HISTORY = "history"
 
@@ -102,9 +98,6 @@ object Routes {
 
     /** 模板编辑器跳转串。 */
     fun templateEditor(): String = TEMPLATE_EDITOR
-
-    /** Hosts 设置页跳转串。 */
-    fun hostsSettings(): String = HOSTS_SETTINGS
 
     /** 历史记录页跳转串。 */
     fun history(): String = HISTORY
@@ -246,12 +239,6 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
             )
         }
 
-        composable(Routes.HOSTS_SETTINGS) {
-            HostsSettingsScreen(
-                onBack = { navController.popBackStack() },
-            )
-        }
-
         composable(Routes.HISTORY) {
             HistoryScreen(
                 onBack = { navController.popBackStack() },
@@ -270,7 +257,6 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 onOpenTmdbConfig = { navController.navigate(Routes.tmdbConfig()) },
                 onOpenTemplateEditor = { navController.navigate(Routes.templateEditor()) },
                 onOpenBackup = { navController.navigate(Routes.backup()) },
-                onOpenHostsSettings = { navController.navigate(Routes.hostsSettings()) },
             )
         }
 

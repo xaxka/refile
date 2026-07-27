@@ -1,13 +1,12 @@
 package xa.refile.data.backup
 
-import xa.refile.core.backup.HostsConfig
 import kotlinx.serialization.Serializable
 
 /**
  * 备份与恢复数据模型（计划 §M5 SubTask 5.2.1）。
  *
  * 整个备份以单个 JSON 文件落盘，结构见 [BackupFile]。
- * - 未加密：数据明文置于 [BackupFile.settings]/[servers]/[hosts]。
+ * - 未加密：数据明文置于 [BackupFile.settings]/[servers]。
  * - 口令加密：上述数据序列化为 [BackupPayload] 后整体 AES-GCM 加密，
  *   密文置于 [BackupFile.cipherText]，[salt]/[iv] 存 Base64，明文字段置空。
  *
@@ -31,8 +30,6 @@ data class BackupFile(
     val settings: SettingsSnapshot? = null,
     /** 服务器快照列表；口令加密时为空。 */
     val servers: List<ServerSnapshot> = emptyList(),
-    /** Hosts 配置；口令加密时为 null。 */
-    val hosts: HostsConfig? = null,
     /** 是否口令加密。 */
     val encrypted: Boolean = false,
     /** PBKDF2 盐（Base64），仅 [encrypted]=true 时有值。 */
@@ -53,7 +50,6 @@ data class BackupFile(
 data class BackupPayload(
     val settings: SettingsSnapshot,
     val servers: List<ServerSnapshot>,
-    val hosts: HostsConfig,
 )
 
 /** 设置快照（Task 5.2.1）。镜像 [xa.refile.data.prefs.SettingsRepository] 持久化字段。 */
@@ -127,6 +123,4 @@ data class ImportChanges(
     val removedServers: Int,
     /** 设置是否将发生变化（含模板串）。 */
     val settingsChanged: Boolean,
-    /** Hosts 配置是否将发生变化。 */
-    val hostsChanged: Boolean,
 )

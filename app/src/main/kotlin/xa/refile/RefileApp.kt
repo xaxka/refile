@@ -7,10 +7,10 @@ import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
-import xa.refile.core.backup.HostPresets
-import xa.refile.core.backup.HostsSpeedTest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+import xa.refile.core.tmdb.TmdbImages
 import xa.refile.data.prefs.SettingsRepository
 import javax.inject.Inject
 
@@ -27,9 +27,9 @@ import javax.inject.Inject
  * and consults this configuration. No explicit `WorkManager.initialize(...)`
  * call is needed in [onCreate].
  *
- * 启动时自动检测 hosts 必要性：若用户开启了 hosts 优化，且当前网络可直连所有预设
- * TMDB 域名（无需 hosts），则临时禁用 hosts（运行时状态，不持久化），让 OkHttpClient
- * 走系统 DNS，避免不必要的 hosts 绕行。用户在设置页手动测试/开关 hosts 时会重置。
+ * TMDB 反代同步：[onCreate] 启动一个应用级协程观察 [SettingsRepository.tmdbProxyUrl]，
+ * 把最新值写入 [TmdbImages.proxyUrl]，使图片请求跟随反代设置（API 请求由
+ * [xa.refile.data.repository.TmdbCacheRepository] 构造 client 时读取同源设置）。
  */
 @HiltAndroidApp
 class RefileApp : Application(), Configuration.Provider {
@@ -40,12 +40,6 @@ class RefileApp : Application(), Configuration.Provider {
     @Inject
     lateinit var settings: SettingsRepository
 
-    @Inject
-    lateinit var hostsSpeedTest: HostsSpeedTest
-
-    /** 应用级协程作用域，用于启动时的 hosts 自动检测等后台任务。 */
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
@@ -53,32 +47,11 @@ class RefileApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
-        checkHostsNecessityOnStartup()
-    }
-
-    /**
-     * 启动时检测是否需要 hosts：仅当用户持久化开启了 hosts 时执行。
-     *
-     * 并发测所有预设 TMDB 域名能否走系统 DNS 直连，全部可达 → 临时禁用 hosts
-     * （[SettingsRepository.setRuntimeHostsDisabled]）。
-     * 任一失败 → 保持 hosts 启用（运行时禁用状态为 false）。
-     * 异常/超时不影响应用启动，最坏情况是 hosts 保持开启（与未检测一致）。
-     */
-    private fun checkHostsNecessityOnStartup() {
-        appScope.launch {
-            try {
-                val config = settings.hostsConfig.first()
-                // 仅当用户开启了 hosts 才检测；关闭状态无需检测。
-                if (!config.enabled) return@launch
-                val allDirect = HostPresets.DEFAULT_CANDIDATES.all { hostname ->
-                    hostsSpeedTest.testDirectConnect(hostname).isDirectAvailable
-                }
-                if (allDirect) {
-                    settings.setRuntimeHostsDisabled(true)
-                }
-            } catch (_: Throwable) {
-                // 检测失败保持默认（hosts 启用），不影响应用启动。
-            }
-        }
+        // 应用级协程：随进程存活，不随任何 Activity/ViewModel 销毁。
+        val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        settings.tmdbProxyUrl
+            .distinctUntilChanged()
+            .onEach { TmdbImages.proxyUrl = it }
+            .launchIn(appScope)
     }
 }

@@ -59,12 +59,13 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), DEFAULT_LANGUAGE)
 
     /**
-     * TMDB API 反代 baseUrl（自定义反代地址）。
+     * TMDB 反代地址（Cloudflare Workers Proxy 等）。
      *
-     * 空串表示用官方默认 `https://api.themoviedb.org/3/`（经 hosts 解析）。
-     * 用户填自建反代地址（如 Vercel/NAS 反代）绕过 DNS 污染，格式需以 `/3/` 结尾。
+     * 空串表示直连官方 `api.themoviedb.org` / `image.tmdb.org`。
+     * 用户只需填 Workers 根地址（如 `https://your-worker.workers.dev/`），
+     * API 与图片请求会在内部自动拼上官方目标地址。
      */
-    val tmdbBaseUrl: StateFlow<String> = settings.tmdbBaseUrl
+    val tmdbProxyUrl: StateFlow<String> = settings.tmdbProxyUrl
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), "")
 
     /** 可选语言列表（语言码 → 显示名），供下拉选择。 */
@@ -108,9 +109,9 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settings.setLanguage(code) }
     }
 
-    /** 保存 TMDB 反代 baseUrl 到 DataStore（空串表示用官方默认）。 */
-    fun setTmdbBaseUrl(value: String) {
-        viewModelScope.launch { settings.setTmdbBaseUrl(value) }
+    /** 保存 TMDB 反代地址到 DataStore（空串表示直连官方）。 */
+    fun setTmdbProxyUrl(value: String) {
+        viewModelScope.launch { settings.setTmdbProxyUrl(value) }
     }
 
     /**
@@ -147,11 +148,6 @@ class SettingsViewModel @Inject constructor(
     /** 触发跳转备份与恢复事件。 */
     fun openBackup() {
         viewModelScope.launch { _events.emit(SettingsNavEvent.OpenBackup) }
-    }
-
-    /** 触发跳转 Hosts 设置事件。 */
-    fun openHostsSettings() {
-        viewModelScope.launch { _events.emit(SettingsNavEvent.OpenHostsSettings) }
     }
 
     /** 请求启动 SAF CreateDocument 选择调试日志保存位置（关于分组）。 */
@@ -219,9 +215,6 @@ sealed interface SettingsNavEvent {
 
     /** 跳转备份与恢复。 */
     object OpenBackup : SettingsNavEvent
-
-    /** 跳转 Hosts 设置。 */
-    object OpenHostsSettings : SettingsNavEvent
 
     /** 触发 SAF CreateDocument 选择调试日志保存位置。 */
     object PickLogFile : SettingsNavEvent
