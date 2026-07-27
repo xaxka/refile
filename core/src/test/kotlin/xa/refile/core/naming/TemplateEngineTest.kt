@@ -329,6 +329,66 @@ class TemplateEngineTest {
         assertThat(r.path).isEqualTo("A-B")
     }
 
+    // ---- Task 8.3：反引号与控制字符非法字符集补齐用例 ----
+
+    @Test fun `backtick replaced by dash when illegal char handling is dash`() {
+        val r = engine(
+            media = MediaMetadata(name = "A`B"),
+            options = NamingOptions(illegalCharHandling = NamingOptions.IllegalCharHandling.REPLACE_DASH),
+        ).render("{n}")
+        assertThat(r.path).isEqualTo("A-B")
+    }
+
+    @Test fun `backtick replaced by underscore when illegal char handling is underscore`() {
+        val r = engine(
+            media = MediaMetadata(name = "A`B"),
+            options = NamingOptions(illegalCharHandling = NamingOptions.IllegalCharHandling.REPLACE_UNDERSCORE),
+        ).render("{n}")
+        assertThat(r.path).isEqualTo("A_B")
+    }
+
+    @Test fun `backtick removed when illegal char handling is remove`() {
+        val r = engine(
+            media = MediaMetadata(name = "A`B"),
+            options = NamingOptions(illegalCharHandling = NamingOptions.IllegalCharHandling.REMOVE),
+        ).render("{n}")
+        assertThat(r.path).isEqualTo("AB")
+    }
+
+    @Test fun `control char newline replaced by dash`() {
+        val r = engine(
+            media = MediaMetadata(name = "A\nB"),
+            options = NamingOptions(illegalCharHandling = NamingOptions.IllegalCharHandling.REPLACE_DASH),
+        ).render("{n}")
+        assertThat(r.path).isEqualTo("A-B")
+    }
+
+    @Test fun `control char tab replaced by dash`() {
+        val r = engine(
+            media = MediaMetadata(name = "A\tB"),
+            options = NamingOptions(illegalCharHandling = NamingOptions.IllegalCharHandling.REPLACE_DASH),
+        ).render("{n}")
+        assertThat(r.path).isEqualTo("A-B")
+    }
+
+    @Test fun `existing illegal char set still works`() {
+        // 验证 Task 8.2 之前就覆盖的 8 个字符仍然被替换：/ \ : * ? " < > |
+        // 注意：路径分隔符 / 不在 applyGlobalOptions 的正则内（render 已按 / 切段），
+        // 反斜杠 \ 在正则内会被替换。为避免路径分隔符歧义，此处仅断言
+        // : * ? " < > | 这 7 个字符在最终路径中不存在。
+        val r = engine(
+            media = MediaMetadata(name = "A:B*C?D\"E<F>G|H"),
+            options = NamingOptions(illegalCharHandling = NamingOptions.IllegalCharHandling.REPLACE_DASH),
+        ).render("{n}")
+        assertThat(r.path).doesNotContain(":")
+        assertThat(r.path).doesNotContain("*")
+        assertThat(r.path).doesNotContain("?")
+        assertThat(r.path).doesNotContain("\"")
+        assertThat(r.path).doesNotContain("<")
+        assertThat(r.path).doesNotContain(">")
+        assertThat(r.path).doesNotContain("|")
+    }
+
     @Test fun `word separator underscore`() {
         val r = engine(
             media = MediaMetadata(name = "Deep Space"),

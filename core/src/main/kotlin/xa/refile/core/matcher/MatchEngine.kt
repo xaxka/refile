@@ -9,6 +9,9 @@ import kotlin.math.abs
  * TMDB 搜索候选（计划 §5.4）。
  *
  * P2.2：新增 [season]/[episodes] 字段，用于 SxE 互校加分。
+ * P3.0：新增 [voteAverage]/[voteCount] 字段，用于同分破平局
+ *       （spec ADDED Requirement: 同分破平局；TMDB `vote_average` / `vote_count`）。
+ *       默认值保证 data class 二进制兼容，既有调用方无需修改。
  */
 data class MatchCandidate(
     val tmdbId: Int,
@@ -20,6 +23,8 @@ data class MatchCandidate(
     val mediaType: MediaType = MediaType.MOVIE,
     val season: Int? = null,
     val episodes: List<Int> = emptyList(),
+    val voteAverage: Double = 0.0,
+    val voteCount: Int = 0,
 )
 
 /**
@@ -46,8 +51,8 @@ sealed class MatchDecision {
  * 置信度评分器（计划 §5.4-3，P0.5-P0.8 + P2.1-P2.3 重构）：
  * `score = titleScore * TITLE_WEIGHT - yearPenalty + popBonus + sxeBonus`
  *
- * - P0.5：年份惩罚（线性，替代二值 YEAR_BONUS）。diff=0 仅 0.01 常量惩罚；diff=30 → 0.04；diff>100 → 0.11 封顶。
- * - P0.6：标题相似度取 max(Jaccard, Levenshtein, Dice bigram, Jaro-Winkler, yearStripped, alias)。
+ * - P0.5：年份惩罚（线性，替代二值 YEAR_BONUS）。|diff|≤1 → 0（±1 容差，覆盖发行年/DVD 年/片中年份差 1）；diff=30 → 0.04；diff>100 → 0.11 封顶。
+ * - P0.6：标题相似度取 max(name, originalName, alias) 三维度，其中 name/originalName 各取 max(Jaccard, Levenshtein, Dice bigram, Jaro-Winkler, yearStripped)，alias 取 4 种相似度 max。
  * - P0.7：归一化阶段 NFD 分解 + 去变音符号（Amélie → Amelie）。
  * - P0.8：TITLE_WEIGHT=0.85, autoThreshold=0.82, margin=0.08。
  * - P2.1：可选分数量化 `quantize(score) = floor(score * 4) / 4`，构造参数 [quantize] 控制。
@@ -80,13 +85,17 @@ class ConfidenceScorer(
     /** P2.1：分数量化到四档（0/0.25/0.5/0.75/1.0）。 */
     private fun quantize(score: Double): Double = kotlin.math.floor(score * 4.0) / 4.0
 
-    /** P0.6：标题相似度 = max(Jaccard, Levenshtein, Dice, Jaro-Winkler, yearStripped, alias)。 */
+    /**
+     * P0.6：标题相似度 = max(nameSim, originalNameSim, aliasSim) 三维度取 max。
+     * - nameSim：candidate.name 跑 5 种相似度（Jaccard/Levenshtein/Dice/Jaro-Winkler/yearStripped）取 max。
+     * - originalNameSim（P3.0 新增）：candidate.originalName 非空时同样跑 5 种相似度取 max，否则 0.0。
+     *   参考 TMM `MediaSearchResult.calculateScore` —— 多语言标题库下原名字段常比英译名更接近解析标题。
+     * - aliasSim：每个 alias 跑 4 种相似度（无 yearStripped）取 max。
+     */
     private fun computeTitleScore(title: String, candidate: MatchCandidate): Double {
-        val jaccard = tokenOverlap(title, candidate.name)
-        val leven = editDistanceRatio(title, candidate.name)
-        val dice = diceBigram(title, candidate.name)
-        val jw = jaroWinkler(title, candidate.name)
-        val yearStripped = yearStrippedSim(title, candidate.name)
+        val nameSim = nameSimilarityMax(title, candidate.name)
+        // P3.0：原名字段参与打分，覆盖 CJK 标题与 TMDB originalName 直接命中场景
+        val originalNameSim = candidate.originalName?.let { nameSimilarityMax(title, it) } ?: 0.0
         val aliasSim = candidate.aliases.maxOfOrNull {
             maxOf(
                 tokenOverlap(title, it),
@@ -95,20 +104,35 @@ class ConfidenceScorer(
                 jaroWinkler(title, it),
             )
         } ?: 0.0
-        return maxOf(jaccard, leven, dice, jw, yearStripped, aliasSim)
+        return maxOf(nameSim, originalNameSim, aliasSim)
+    }
+
+    /**
+     * 对单个候选名（candidate.name 或 candidate.originalName）跑 5 种相似度算法
+     * （Jaccard / Levenshtein / Dice bigram / Jaro-Winkler / yearStripped）并取 max。
+     */
+    private fun nameSimilarityMax(title: String, candidateName: String): Double {
+        val jaccard = tokenOverlap(title, candidateName)
+        val leven = editDistanceRatio(title, candidateName)
+        val dice = diceBigram(title, candidateName)
+        val jw = jaroWinkler(title, candidateName)
+        val yearStripped = yearStrippedSim(title, candidateName)
+        return maxOf(jaccard, leven, dice, jw, yearStripped)
     }
 
     /**
      * P0.5：年份惩罚（参考 TMM `calculateYearPenalty`）。
      * - parsed.year 为 null → 0（无年份不惩罚）
      * - candidate.year 为 null → 0.11（候选缺年份，较大惩罚）
-     * - |diff| > 100 → 0.11（封顶）
-     * - 否则 → 0.01 + diff/1000（线性，diff=0 时 0.01，diff=100 时 0.11）
+     * - |sy - cy| ≤ 1 → 0（P3.0 修订：±1 容差，覆盖发行年/DVD 年/片中年份差 1 的常见场景）
+     * - |sy - cy| > 100 → 0.11（封顶）
+     * - 否则 → 0.01 + diff/1000（线性，diff=2 时 0.012，diff=100 时 0.11）
      */
     private fun yearPenalty(sy: Int?, cy: Int?): Double {
         if (sy == null) return 0.0
         if (cy == null) return MAX_YEAR_PENALTY
         val diff = abs(sy - cy)
+        if (diff <= 1) return 0.0
         if (diff > 100) return MAX_YEAR_PENALTY
         return 0.01 + diff / 1000.0
     }
@@ -309,6 +333,9 @@ class ConfidenceScorer(
  *
  * P0.8：autoThreshold=0.82, margin=0.08。
  * P2.1：[quantize] 开关透传给 [ConfidenceScorer]；启用时建议同步调小 [margin]。
+ * P3.0：同分破平局 —— best 与次名分差 < `margin/2` 时，启用
+ *       `vote_average`（>0 且 `vote_count≥20`）→ `vote_count` → 年份近度 重排序；
+ *       破平局后的 best 仍需 `score >= autoThreshold` 且 `secondGap >= margin` 才 Auto。
  */
 class MatchEngine(
     private val scorer: ConfidenceScorer = ConfidenceScorer(),
@@ -322,10 +349,91 @@ class MatchEngine(
         val best = scored.first()
         val second = scored.getOrNull(1)
         val secondGap = best.score - (second?.score ?: 0.0)
-        return if (best.score >= autoThreshold && secondGap >= margin) {
-            MatchDecision.Auto(best)
+
+        // P3.0 同分破平局：best 与次名分差 < margin/2 时，对排序后的列表用破平局 comparator 重排
+        val tieBroken = if (secondGap < margin / 2.0) {
+            scored.sortedWith(tieBreakComparator(parsed))
         } else {
-            MatchDecision.NeedsConfirm(scored)
+            scored
         }
+
+        // 决策仍以 margin（而非 margin/2）为 Auto 触发条件；margin/2 仅用于触发破平局重排序
+        val finalBest = tieBroken.first()
+        val finalSecondGap = finalBest.score - (tieBroken.getOrNull(1)?.score ?: 0.0)
+        return if (finalBest.score >= autoThreshold && finalSecondGap >= margin) {
+            MatchDecision.Auto(finalBest)
+        } else {
+            MatchDecision.NeedsConfirm(tieBroken)
+        }
+    }
+
+    /**
+     * P3.0：Provider ID 短路匹配入口。
+     *
+     * 检查 [parsed] 是否携带任一 Provider ID（tmdbId/tvdbId/imdbId），若携带则调用 [lookup] lambda
+     * 取回确定候选，构造 [MatchDecision.Auto]（score=1.0，绝对信任 ID）。[lookup] 接收 parsed 返回
+     * 可空 [MatchCandidate]，调用方负责把 TMDB/TVDB/IMDb 端点响应转成 MatchCandidate。
+     *
+     * - 若 [parsed] 不携带任何 Provider ID → 立即返回 null，调用方走原 [match] 路径
+     * - 若 [lookup] 返回 null（如端点 404 或网络失败）→ 返回 null，调用方回退到 [match]
+     * - 命中 → 返回 [MatchDecision.Auto]，best.score = 1.0（绝对信任 ID，绕过相似度打分）
+     *
+     * 优先级：tmdbId > tvdbId > imdbId（具体优先级由调用方在 lookup lambda 内部决定，
+     * 调用方依次尝试三个 ID，命中即返回；本方法仅负责短路判断与构造 Auto 决策）。
+     */
+    suspend fun matchByIds(
+        parsed: ParsedFilename,
+        lookup: suspend (ParsedFilename) -> MatchCandidate?,
+    ): MatchDecision? {
+        if (parsed.tmdbId == null && parsed.tvdbId == null && parsed.imdbId == null) return null
+        val candidate = lookup(parsed) ?: return null
+        return MatchDecision.Auto(ScoredCandidate(candidate, score = 1.0))
+    }
+
+    /**
+     * P3.0 同分破平局 comparator（spec ADDED Requirement: 同分破平局）。
+     *
+     * 主序：score 降序（stable，相等返回 0 保留原 [scored] 排序位置）。
+     * 破平局（仅当 score 相等时触发）：
+     * 1. 双方都满足 `voteAverage>0 且 voteCount>=20` → 按 `vote_average` 降序 →
+     *    `vote_count` 降序 → 年份近度 `|parsed.year - candidate.year|` 升序。
+     * 2. 一方满足一方不满足 → 满足者优先（避免不参与破平局的候选压过参与者）。
+     * 3. 双方都不满足 → 返回 0，保持原 score 排序位置（避免刷分小众剧误压热门）。
+     *
+     * 注：Kotlin `sortedWith` 使用 TimSort（stable），返回 0 时原序保留。
+     */
+    private fun tieBreakComparator(parsed: ParsedFilename): Comparator<ScoredCandidate> =
+        Comparator { a, b ->
+            // 主序：score 降序
+            val scoreCmp = b.score.compareTo(a.score)
+            if (scoreCmp != 0) return@Comparator scoreCmp
+
+            val aEligible = a.candidate.voteAverage > 0.0 && a.candidate.voteCount >= 20
+            val bEligible = b.candidate.voteAverage > 0.0 && b.candidate.voteCount >= 20
+            when {
+                !aEligible && !bEligible -> 0  // 都不参与，保持原序
+                aEligible && !bEligible -> -1 // a 参与，a 优先
+                !aEligible && bEligible -> 1  // b 参与，b 优先
+                else -> {
+                    val cmpAvg = b.candidate.voteAverage.compareTo(a.candidate.voteAverage)
+                    if (cmpAvg != 0) cmpAvg
+                    else {
+                        val cmpCnt = b.candidate.voteCount.compareTo(a.candidate.voteCount)
+                        if (cmpCnt != 0) cmpCnt
+                        else yearDistance(parsed, a.candidate)
+                            .compareTo(yearDistance(parsed, b.candidate))
+                    }
+                }
+            }
+        }
+
+    /**
+     * P3.0：年份近度 `|parsed.year - candidate.year|`。
+     * parsed.year 或 candidate.year 任一缺失 → 视为 [Int.MAX_VALUE]（不参与年份近度破平局）。
+     */
+    private fun yearDistance(parsed: ParsedFilename, candidate: MatchCandidate): Int {
+        val sy = parsed.year ?: return Int.MAX_VALUE
+        val cy = candidate.year ?: return Int.MAX_VALUE
+        return abs(sy - cy)
     }
 }

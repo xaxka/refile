@@ -184,6 +184,51 @@ class TmdbCacheRepository @Inject constructor(
     }
 
     /**
+     * P3.0：按 TMDB ID 直接拉详情（绕过搜索）。
+     *
+     * 文件名解析出 TMDB ID 时直接走详情端点，跳过 search + 相似度打分。
+     * 由于 [TmdbClient.findByTmdbId] 内部就是 [getMovie]/[getTv]，本方法直接复用
+     * 现有详情缓存（[getMovie]/[getTv] 已自带 Room 持久缓存与 TTL），不另开 sessionCache。
+     *
+     * [mediaType] 必须确定（非空）：调用方在 MatchType.AUTO 时应按 parsed.season/episodes 推断。
+     * 返回完整 [MediaMetadata]（带 credits/aliases/localize 等详情字段）。
+     */
+    suspend fun findByTmdbId(
+        tmdbId: Int,
+        mediaType: MediaType,
+        language: String = "zh-CN",
+    ): MediaMetadata = when (mediaType) {
+        // 复用现有详情缓存（movieKey/tvKey 键 + Room TTL）
+        MediaType.MOVIE -> getMovie(tmdbId, language)
+        MediaType.EPISODE -> getTv(tmdbId, language)
+    }
+
+    /**
+     * P3.0：按 TVDB ID 精确查找（`/find/{external_id}?external_source=tvdb_id`）。
+     *
+     * 与 [findByImdbId] 一样走 [sessionCache]（同一 TVDB ID 不会重复联网），不持久化到 Room
+     * （命中后立刻走 [getMovie]/[getTv] 详情缓存）。
+     *
+     * 缓存键：`"FIND_TVDB:{tvdbId}:{mediaType?:"null"}:{language}"`。
+     * 命中返回轻量 [MediaMetadata]，未命中返回 null（不缓存 null）。
+     */
+    suspend fun findByTvdbId(
+        tvdbId: Int,
+        mediaType: MediaType?,
+        language: String = "zh-CN",
+    ): MediaMetadata? {
+        val cacheKey = "$CACHE_FIND_TVDB:$tvdbId:${mediaType ?: "null"}:$language"
+        synchronized(sessionCache) {
+            sessionCache[cacheKey]?.let { return it.firstOrNull() }
+        }
+        val fresh = buildTmdbClient().findByTvdbId(tvdbId, mediaType, language)
+        synchronized(sessionCache) {
+            sessionCache[cacheKey] = fresh?.let { listOf(it) } ?: emptyList()
+        }
+        return fresh
+    }
+
+    /**
      * 清空会话级搜索结果内存缓存（Task 3.1/3.2）。
      *
      * 供 MatchViewModel 在重新匹配/重置文件时调用，避免旧搜索结果残留影响下一次匹配。
@@ -324,6 +369,7 @@ class TmdbCacheRepository @Inject constructor(
         const val CACHE_SEASON = "SEASON"
         const val CACHE_EPISODE_GROUP = "EPISODE_GROUP"
         const val CACHE_FIND_IMDB = "FIND_IMDB"
+        const val CACHE_FIND_TVDB = "FIND_TVDB"
     }
 }
 

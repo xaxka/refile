@@ -70,6 +70,8 @@ class FilenameParser {
         // 6. 解析季集（日期型在归一化前的原文上检测，因日期分隔符为 . _ -）
         //    ABSOLUTE_EP 仅在无年份（避免误伤 Apollo 13 1995）且无其他季集标记时尝试。
         val seasonEpisode = parseSeasonEpisode(spaced, tokens.brackets, baseName, year)
+        // P3.0：集号字母后缀 a-i（同集分上下部，如 S01E02a → "a"）
+        val episodeSubPart = seasonEpisode.episodeSubPart
         // 7. 解析分片序号
         val part = parsePart(spaced)
         // 8. 解析版本标签（v2/Repack/Proper/Final/Rerelease）
@@ -79,8 +81,9 @@ class FilenameParser {
         // 8c. P1.2：解析 HDR / 3D 标签
         val hdr = parseHdr(baseName)
         val threeD = parse3D(baseName)
-        // 8d. P1.5：解析 IMDb ID（tt\d{7,8}）
-        val imdbId = parseImdbId(raw)
+        // 8d. P3.0：解析 Provider ID（IMDb/TMDB/TVDB/TVMaze，含 URL 形态）
+        val providerIds = parseProviderIds(raw)
+        val imdbId = providerIds.imdbId
         // 8e. P1.6：解析流媒体来源（AMZN/NF/ATVP/HMAX/...）
         val streamingSource = parseStreamingSource(baseName)
         // 8f. P1.7：字幕文件扩展名分支 — 解析语言标签与修饰符
@@ -123,6 +126,10 @@ class FilenameParser {
             subtitleInfo = subtitleInfo,
             extraType = extraType,
             titleAliases = titleAliases,
+            tmdbId = providerIds.tmdbId,
+            tvdbId = providerIds.tvdbId,
+            tvmazeId = providerIds.tvmazeId,
+            episodeSubPart = episodeSubPart,
         )
     }
 
@@ -257,6 +264,7 @@ class FilenameParser {
         val episodes: List<Int>,
         val daily: Boolean,
         val isAbsolute: Boolean = false,
+        val episodeSubPart: String? = null,
     ) {
         fun hasSeasonOrEpisode() = season != null || episodes.isNotEmpty() || daily
     }
@@ -296,11 +304,45 @@ class FilenameParser {
         rawBase: String,
         year: Int?,
     ): SeasonEpisodeResult {
+        // P3.0：Anime Special/OVA 前缀识别（→ season=0，特别篇）
+        // ANIME_SPECIAL_TOKEN 检查 spaced（清洗后文本中的独立词 OVA/Special）；
+        // ANIME_SPECIAL_BRACKET 检查 rawBase（含原始方括号 [Special] 形态）。
+        if (ANIME_SPECIAL_TOKEN.containsMatchIn(spaced) || ANIME_SPECIAL_BRACKET.containsMatchIn(rawBase)) {
+            return SeasonEpisodeResult(0, emptyList(), false)
+        }
         // S01E01E02 / S01E01-E03 / s1e2
         SEASON_EPISODE.find(spaced)?.let { m ->
             val season = m.groupValues[1].toInt()
             val episodes = parseEpisodeList(m.groupValues[2])
-            if (episodes.isNotEmpty()) return SeasonEpisodeResult(season, episodes, false)
+            if (episodes.isNotEmpty()) {
+                val suffix = if (episodes.size == 1) extractEpisodeLetterSuffix(spaced, m.range.first, m.range.last + 1) else null
+                return SeasonEpisodeResult(season, episodes, false, episodeSubPart = suffix)
+            }
+        }
+        // P3.0：Season 1 Episode 2 / Staffel 2 Episode 5（含多语言季关键词）
+        SEASON_WORD_EP.find(spaced)?.let { m ->
+            val season = m.groupValues[1].toInt()
+            val epStart = m.groupValues[2].toInt()
+            val epEnd = m.groupValues.getOrNull(3)?.takeIf { it.isNotBlank() }?.toIntOrNull()
+            val episodes = if (epEnd != null && epEnd >= epStart && epEnd - epStart <= MAX_EPISODE_RANGE) {
+                (epStart..epEnd).toList()
+            } else {
+                listOf(epStart)
+            }
+            val suffix = extractEpisodeLetterSuffix(spaced, m.range.first, m.range.last + 1)
+            return SeasonEpisodeResult(season, episodes, false, episodeSubPart = suffix)
+        }
+        // P3.0：Episode 16 / Episode 16-20（独立词模式）
+        EPISODE_WORD.find(spaced)?.let { m ->
+            val epStart = m.groupValues[1].toInt()
+            val epEnd = m.groupValues.getOrNull(2)?.takeIf { it.isNotBlank() }?.toIntOrNull()
+            val episodes = if (epEnd != null && epEnd >= epStart && epEnd - epStart <= MAX_EPISODE_RANGE) {
+                (epStart..epEnd).toList()
+            } else {
+                listOf(epStart)
+            }
+            val suffix = extractEpisodeLetterSuffix(spaced, m.range.first, m.range.last + 1)
+            return SeasonEpisodeResult(null, episodes, false, isAbsolute = true, episodeSubPart = suffix)
         }
         // 季节范围 S01-S03 / S01–S03（多季合集，记起始季，标 EPISODE）
         SEASON_RANGE.find(spaced)?.let { m ->
@@ -309,7 +351,8 @@ class FilenameParser {
         }
         // 1x02
         NX_N.find(spaced)?.let { m ->
-            return SeasonEpisodeResult(m.groupValues[1].toInt(), listOf(m.groupValues[2].toInt()), false)
+            val suffix = extractEpisodeLetterSuffix(spaced, m.range.first, m.range.last + 1)
+            return SeasonEpisodeResult(m.groupValues[1].toInt(), listOf(m.groupValues[2].toInt()), false, episodeSubPart = suffix)
         }
         // 第X季第X集/话/章/回/篇（阿拉伯数字）
         CHINESE_SEASON_EP.find(spaced)?.let { m ->
@@ -337,6 +380,10 @@ class FilenameParser {
             val s = chineseToInt(m.groupValues[1]) ?: return@let
             return SeasonEpisodeResult(s, emptyList(), false)
         }
+        // P3.0：仅季字面词（Staffel 3 / Saison 3，无 Episode 后缀）
+        SEASON_WORD_ONLY.find(spaced)?.let { m ->
+            return SeasonEpisodeResult(m.groupValues[1].toInt(), emptyList(), false)
+        }
         // 独立集号 E02 / EP02（需 E/EP 前缀，避免误判 Apollo 13 / 2012）
         STANDALONE_EP.find(spaced)?.let { m ->
             return SeasonEpisodeResult(null, listOf(m.groupValues[1].toInt()), false)
@@ -345,6 +392,10 @@ class FilenameParser {
         if (brackets.any { BRACKET_EP.matches(it) }) {
             val ep = brackets.first { BRACKET_EP.matches(it) }.toInt()
             return SeasonEpisodeResult(null, listOf(ep), false, isAbsolute = true)
+        }
+        // P3.0：日优先日期格式（欧洲）
+        if (DAILY_SHOW_EU.containsMatchIn(rawBase)) {
+            return SeasonEpisodeResult(null, emptyList(), daily = true)
         }
         // 日期型剧集 2024.01.15 / 2024-01-15（在归一化前的原文上检测）
         if (DAILY_SHOW.containsMatchIn(rawBase)) {
@@ -356,6 +407,18 @@ class FilenameParser {
             tryAbsoluteEpisode(spaced)?.let { return it }
         }
         return SeasonEpisodeResult(null, emptyList(), false)
+    }
+
+    /** P3.0：检测 SxxExx / NxEyy 匹配后的字母后缀 a-i（同集分上下部）。 */
+    private fun extractEpisodeLetterSuffix(spaced: String, matchStart: Int, matchEnd: Int): String? {
+        if (matchEnd >= spaced.length) return null
+        val next = spaced[matchEnd]
+        if (!(next in 'a'..'i' || next in 'A'..'I')) return null
+        // 再后一个字符需为边界（空格、点、横线、末尾），避免误抓多字符 token
+        val afterNext = spaced.getOrNull(matchEnd + 1)
+        val isBoundary = afterNext == null || afterNext.isWhitespace() || afterNext in "._-"
+        if (!isBoundary) return null
+        return next.lowercase().toString()
     }
 
     /**
@@ -441,7 +504,16 @@ class FilenameParser {
     )
 
     private fun parseTech(input: String): TechResult {
-        val resolution = RESOLUTION.find(input)?.value?.lowercase()
+        // 高度+p 优先（如 1080p）；缺失时尝试 WxH 形态（如 1920x1080 → "1080p"）
+        var resolution = RESOLUTION.find(input)?.value?.lowercase()
+        if (resolution == null) {
+            RESOLUTION_WXH.find(input)?.let { m ->
+                val height = m.groupValues[2].toIntOrNull()
+                if (height != null && height in 360..8640) {
+                    resolution = "${height}p"
+                }
+            }
+        }
         val source = findSource(input)
         val videoCodec = VIDEO_CODEC.find(input)?.value?.lowercase()
         val audioCodec = AUDIO_CODEC.find(input)?.value?.lowercase()
@@ -504,6 +576,12 @@ class FilenameParser {
         PART_SUFFIX.find(input)?.let {
             val c = it.groupValues[1].lowercase()[0]
             return c - 'a' + 1
+        }
+        // P3.0：Part II / Pt IV（罗马数字）
+        PART_ROMAN.find(input)?.let {
+            val roman = it.groupValues[1].uppercase()
+            val n = romanToInt(roman)
+            if (n != null && n in 1..100) return n
         }
         return null
     }
@@ -677,6 +755,57 @@ class FilenameParser {
     private fun parseImdbId(input: String): String? =
         IMDB_ID.find(input)?.value?.lowercase()
 
+    // ---- P3.0 Provider ID 提取 ----
+    /**
+     * 从文件名（含扩展名）提取 TMDB/TVDB/TVMaze/IMDb ID。
+     * 优先级：方括号属性 > URL 形态 > 裸 IMDb。
+     * 任一 ID 命中即返回，未命中字段为 null。
+     */
+    private fun parseProviderIds(raw: String): ProviderIds {
+        var tmdbId: Int? = null
+        var tvdbId: Int? = null
+        var tvmazeId: Int? = null
+        var imdbId: String? = null
+
+        // TMDB：方括号属性优先，其次 URL
+        TMDB_ID.find(raw)?.let { m ->
+            val grp1 = m.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() }
+            val grp2 = m.groupValues.getOrNull(2)?.takeIf { it.isNotBlank() }
+            tmdbId = (grp1 ?: grp2)?.toIntOrNull()
+        }
+        // TVDB：方括号属性优先，其次 URL
+        TVDB_ID.find(raw)?.let { m ->
+            val grp1 = m.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() }
+            val grp2 = m.groupValues.getOrNull(2)?.takeIf { it.isNotBlank() }
+            tvdbId = (grp1 ?: grp2)?.toIntOrNull()
+        }
+        // TVMaze：仅方括号属性
+        TVMAZE_ID.find(raw)?.let { m ->
+            tvmazeId = m.groupValues[1].toIntOrNull()
+        }
+        // IMDb：URL 优先，其次裸 tt 形态
+        IMDB_URL.find(raw)?.let { m ->
+            val ttForm = m.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() }
+            val numForm = m.groupValues.getOrNull(2)?.takeIf { it.isNotBlank() }
+            imdbId = when {
+                ttForm != null -> ttForm.lowercase()
+                numForm != null -> "tt$numForm"
+                else -> null
+            }
+        }
+        if (imdbId == null) {
+            imdbId = IMDB_ID.find(raw)?.value?.lowercase()
+        }
+        return ProviderIds(tmdbId, tvdbId, tvmazeId, imdbId)
+    }
+
+    private data class ProviderIds(
+        val tmdbId: Int?,
+        val tvdbId: Int?,
+        val tvmazeId: Int?,
+        val imdbId: String?,
+    )
+
     // ---- P2.5 Extras ----
     private fun parseExtraType(input: String): ExtraType? = ExtraType.find(input)
 
@@ -722,6 +851,33 @@ class FilenameParser {
         return total
     }
 
+    /**
+     * P3.0：罗马数字转 Int（支持 I/V/X/L/C/D/M，最大 3999）。
+     * 解析算法：从左到右扫描，当前字符值 < 下一字符值时减去，否则加上。
+     * 无法识别返回 null。
+     */
+    private fun romanToInt(s: String): Int? {
+        if (s.isEmpty()) return null
+        val values = mapOf(
+            'I' to 1, 'V' to 5, 'X' to 10, 'L' to 50,
+            'C' to 100, 'D' to 500, 'M' to 1000,
+        )
+        if (s.any { it !in values }) return null
+        var total = 0
+        var prev = 0
+        for (c in s) {
+            val v = values[c]!!
+            if (prev != 0 && prev < v) {
+                // 减法规则修正：之前加上了 prev，现在应改为减去 prev 并加上 v
+                total = total - prev + (v - prev)
+            } else {
+                total += v
+            }
+            prev = v
+        }
+        return total
+    }
+
     companion object {
         // P0.2/P0.4：季集号上限
         private const val MAX_EPISODE_RANGE = 5
@@ -734,6 +890,27 @@ class FilenameParser {
 
         // S01E01E02 / S01E01-E03 / s1e2 — group2 捕获集号串（支持 E 与 - 分隔，含混合 01-E03）
         private val SEASON_EPISODE = Regex("(?i)S(\\d{1,2})E(\\d{1,3}(?:[-]?E?\\d{1,3})*)")
+        // P3.0 英文字面词季集模式：Season 1 Episode 2 / Staffel 2 Episode 5（含多语言季关键词）
+        private val SEASON_WORD_EP = Regex(
+            "(?i)(?<![a-z])(?:season|staffel|saison|temporada|series|stagione|сезон|시즌|الموسم)\\s+(\\d{1,2})\\s+episode\\s+(\\d{1,3})(?:-(\\d{1,3}))?"
+        )
+        // P3.0 仅季字面词：Staffel 3 / Saison 3（不接 Episode）
+        private val SEASON_WORD_ONLY = Regex(
+            "(?i)(?<![a-z])(?:season|staffel|saison|temporada|series|stagione|сезон|시즌|الموسم)\\s+(\\d{1,2})(?!\\s*episode)"
+        )
+        // P3.0 Episode 独立词模式：Episode 16 / Episode 16-20
+        private val EPISODE_WORD = Regex(
+            "(?i)(?<![a-z])episode\\s+(\\d{1,3})(?:-(\\d{1,3}))?"
+        )
+        // P3.0 Anime Special/OVA 前缀识别（→ season=0）
+        private val ANIME_SPECIAL_TOKEN = Regex(
+            "(?i)(?:^|[\\s._-])(special|ova|oav|picture[\\s._]drama|sp\\d+)(?:$|[\\s._-])"
+        )
+        private val ANIME_SPECIAL_BRACKET = Regex(
+            "(?i)\\[(special|ova|oav|sp\\d+)]"
+        )
+        // P3.0 集号字母后缀 a-i（S01E02a / 1x02b 后的单字母）
+        private val EPISODE_LETTER_SUFFIX = Regex("(?i)([a-i])$")
         private val EPISODE_NUM = Regex("\\d{1,3}")
         // B24 补丁：集号区间 N-M（两端均可带 E 前缀，如 01-E03 / E01-E03 / 01-03）。
         private val RANGE_EP = Regex("(?i)E?(\\d{1,3})\\s*-\\s*E?(\\d{1,3})")
@@ -760,6 +937,8 @@ class FilenameParser {
         // 已知技术词数字（分辨率高度等），用于绝对集号二次过滤
         private val TECH_NUMBERS = setOf(720, 480, 540, 360, 240, 1080, 2160, 4320)
         private val DAILY_SHOW = Regex("(?<!\\d)(19|20)\\d{2}[._-](0?[1-9]|1[0-2])[._-]([0-2]?[0-9]|3[01])(?!\\d)")
+        // P3.0 日优先日期格式：15.01.2024 / 15-01-2024（欧洲日期）
+        private val DAILY_SHOW_EU = Regex("(?<!\\d)(0?[1-9]|[12]\\d|3[01])[._-](0?[1-9]|1[0-2])[._-]((?:19|20)\\d{2})(?!\\d)")
         // 年份：前后不能是数字；前面也不能是汉字（否则视为标题的一部分，如 `寒战1994`）。
         // 这样 `寒战1994` 中的 1994 不被识别为独立年份，而 `Cold.War.1994` 中点分隔的 1994 仍被识别。
         private val YEAR = Regex("(?<!\\d)(?<!\\p{script=Han})(19\\d{2}|20\\d{2})(?!\\d)")
@@ -768,6 +947,8 @@ class FilenameParser {
         // 导致下划线分隔文件名（The_Last_of_Us_S01E02_1080p_WEB-DL_x264）的 _1080p/_WEB-DL/_x264
         // 均无法识别。改用自定义边界 (?<![A-Za-z0-9]) / (?![A-Za-z0-9])，下划线视为合法分隔符。
         private val RESOLUTION = Regex("(?i)(?<![A-Za-z0-9])(2160p|1080p|720p|540p|480p|360p|4320p|4K|8K)(?![A-Za-z0-9])")
+        // P3.0 WxH 分辨率：1920x1080 / 1280x720（与高度+p 并存，高度+p 优先）
+        private val RESOLUTION_WXH = Regex("(?i)(?<![A-Za-z0-9])(\\d{3,4})[xX](\\d{3,4})(?![A-Za-z0-9])")
         private val SOURCE_TOKEN = Regex("(?i)(?<![A-Za-z0-9])(Blu-?Ray|BDRip|BD25|BD50|BRRip|WEB-?DL|WEBDL|WEBRip|WEB|HDTV|DVDRip|DVD|R5|CAM|REMUX|HD-?TS|HD-?TC|PDVD)(?![A-Za-z0-9])")
         private val VIDEO_CODEC = Regex("(?i)(?<![A-Za-z0-9])(x264|x265|h264|h265|hevc|av1|vp9|divx|xvid|mpeg-?2|mpeg-?4|vc1)(?![A-Za-z0-9])")
         private val AUDIO_CODEC = Regex("(?i)(?<![A-Za-z0-9])(AAC|AC3|EAC3|DDP|DDPA|DD|DTS|DTS-?HD|DTS-?MA|TrueHD|Atmos|FLAC|MP3|PCM|Opus)(?![A-Za-z0-9])")
@@ -778,6 +959,8 @@ class FilenameParser {
         private val PART_LETTER = Regex("(?i)(?:^|\\s)(?:CD|DISC|PART|PT)\\s?([a-d])(?:$|\\s)")
         private val PART_OF = Regex("(?i)(?:^|\\s)(\\d{1,2})\\s?(?:of|⁄|∕|/)\\s?\\d{1,2}(?:$|\\s)")
         private val PART_SUFFIX = Regex("[\\-\\._]([a-d])$")
+        // P3.0 罗马数字 Part：Part II / Pt IV（仿 chineseToInt 实现）
+        private val PART_ROMAN = Regex("(?i)(?:^|\\s)(?:pt|part)\\s?([ivx]+)(?:$|\\s)")
         // 集名/副标题分隔符：` - `（前后带空格的横线），如 `剧名 S01E01 - 集名` 中的 ` - `。
         private val EPISODE_TITLE_SEP = Regex("\\s-\\s")
         // 编解码器片段：2+ 字母后接数字（如 DTS5、DDP5、x265），用于标题尾部技术词剥离兜底。
@@ -794,8 +977,17 @@ class FilenameParser {
         private val THREE_D_MVC = Regex("(?i)(?<![A-Za-z0-9])MVC(?![A-Za-z0-9])")
         private val THREE_D_ONLY = Regex("(?i)(?<![A-Za-z0-9])3D(?![A-Za-z0-9])")
 
-        // P1.5：IMDb ID
-        private val IMDB_ID = Regex("(?<![A-Za-z0-9])tt(\\d{7,8})(?![A-Za-z0-9])", RegexOption.IGNORE_CASE)
+        // P1.5/P3.0：IMDb ID（裸 tt 形态，6 位以上）
+        private val IMDB_ID = Regex("(?<![A-Za-z0-9])tt(\\d{6,})(?![A-Za-z0-9])", RegexOption.IGNORE_CASE)
+        // P3.0 IMDb URL 形态：imdb.com/title/tt0123456 或 imdb.com/Title?0123456
+        // 文件名中 / 会被替换为 - 或 .，故分隔符允许多种
+        private val IMDB_URL = Regex("(?i)imdb\\.com[-/.](?:title[-/.](tt\\d{6,})|Title\\?(\\d{6,}))")
+        // P3.0 TMDB ID：[tmdbid-123] 方括号属性 或 themoviedb.org/movie/123 URL
+        private val TMDB_ID = Regex("(?i)\\[tmdbid-?(\\d+)]|themoviedb\\.org[-/.](?:movie|tv)[-/.](\\d+)")
+        // P3.0 TVDB ID：[tvdbid-123] 方括号属性 或 thetvdb.com URL 含 id= 参数
+        private val TVDB_ID = Regex("(?i)\\[tvdbid-?(\\d+)]|thetvdb\\.com[^\\s]*?id=(\\d+)")
+        // P3.0 TVMaze ID：[tvmazeid-123] 方括号属性
+        private val TVMAZE_ID = Regex("(?i)\\[tvmazeid-?(\\d+)]")
 
         // P1.6：流媒体来源（边界保护避免 MA 与 multi-audio 混淆）
         private val STREAMING_SOURCE = Regex("(?i)(?<![A-Za-z0-9])(AMZN|NF|ATVP|HMAX|STZ|PCOK|MA|NBC|CR|DSNP|HULU)(?![A-Za-z0-9])")

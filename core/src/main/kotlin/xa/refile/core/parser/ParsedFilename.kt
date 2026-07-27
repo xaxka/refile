@@ -14,6 +14,12 @@ import xa.refile.core.model.MediaType
  * - P1.6 [streamingSource]：AMZN/NF/ATVP/... 映射后的服务商名
  * - P1.7 [subtitleInfo]：字幕文件语言 + 修饰符
  * - P2.5 [extraType]：Trailer/Sample/...
+ *
+ * P3.0 字段增量：
+ * - P3.0 [tmdbId]：TMDB 数据库 ID（来自 `[tmdbid-123]` 或 `themoviedb.org/movie/123` URL）
+ * - P3.0 [tvdbId]：TheTVDB 数据库 ID
+ * - P3.0 [tvmazeId]：TVMaze 数据库 ID
+ * - P3.0 [episodeSubPart]：集号字母后缀 a-i（如 `S01E02a` → "a"），表示同集分上下部
  */
 data class ParsedFilename(
     val title: String? = null,
@@ -45,6 +51,14 @@ data class ParsedFilename(
     val extraType: ExtraType? = null,
     // P2.6 标题别名（中英混合文件名拆分出的其它语言段，如 `寒战1994 Cold War` → aliases=["Cold War"]）
     val titleAliases: List<String> = emptyList(),
+    // P3.0 TMDB 数据库 ID（来自 `[tmdbid-123]` 或 `themoviedb.org/movie/123` URL）
+    val tmdbId: Int? = null,
+    // P3.0 TheTVDB 数据库 ID
+    val tvdbId: Int? = null,
+    // P3.0 TVMaze 数据库 ID
+    val tvmazeId: Int? = null,
+    // P3.0 集号字母后缀 a-i（如 `S01E02a` → "a"），表示同集分上下部
+    val episodeSubPart: String? = null,
 ) {
     /** 是否多集文件。 */
     val isMultiEpisode: Boolean get() = episodes.size > 1

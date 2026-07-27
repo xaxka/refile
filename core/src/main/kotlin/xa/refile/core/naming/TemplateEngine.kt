@@ -141,11 +141,11 @@ class TemplateEngine(
         // 非法文件名字符（路径分隔 / 已用于分段，此处不再替换 /）
         val cleaned = when (options.illegalCharHandling) {
             NamingOptions.IllegalCharHandling.REPLACE_DASH ->
-                s.replace(Regex("[\\\\:*?\"<>|]"), "-")
+                s.replace(Regex("[\\\\:*?\"<>|`\\t\\r\\n\\f\\u0000]"), "-")
             NamingOptions.IllegalCharHandling.REPLACE_UNDERSCORE ->
-                s.replace(Regex("[\\\\:*?\"<>|]"), "_")
+                s.replace(Regex("[\\\\:*?\"<>|`\\t\\r\\n\\f\\u0000]"), "_")
             NamingOptions.IllegalCharHandling.REMOVE ->
-                s.replace(Regex("[\\\\:*?\"<>|]"), "")
+                s.replace(Regex("[\\\\:*?\"<>|`\\t\\r\\n\\f\\u0000]"), "")
         }
         // 大小写（先于分隔符替换：TITLE 依赖空格 split，需在空格被替换为分隔符前处理）
         val cased = when (options.casing) {
