@@ -130,11 +130,11 @@ class FilenameParserTest {
         assertThat(r.mediaType).isEqualTo(MediaType.MOVIE)
     }
 
-    @Test fun `multi-year filename takes first year as release year`() {
-        // 1994 是原作上映年份，2026 是发行版/压制年份；TMDB 收录原作上映年，
-        // 应取 1994 用于搜索，否则用 2026 搜不到 1994 的电影。
+    @Test fun `multi-year filename takes last year as release year`() {
+        // 1994 是原作/片中年份，2026 是发行版年份；应取 2026 用于 TMDB 搜索，
+        // 否则用 1994 搜 2026 年的电影会搜不到。
         val r = parser.parse("Cold.War.1994.2026.2160p.WEB-DL.mkv")
-        assertThat(r.year).isEqualTo(1994)
+        assertThat(r.year).isEqualTo(2026)
         assertThat(r.season).isNull()
         assertThat(r.episodes).isEmpty()
         assertThat(r.mediaType).isEqualTo(MediaType.MOVIE)
@@ -421,10 +421,10 @@ class FilenameParserTest {
         assertThat(r.year).isEqualTo(2009)
     }
 
-    @Test fun `multi year movie with h265 dts5 dot 1 tech tail cleans to title and first year`() {
+    @Test fun `multi year movie with h265 dts5 dot 1 tech tail cleans to title and last year`() {
         val r = parser.parse("Cold.War.1994.2026.2160p.YK.WEB-DL.H.265.DV.HQ.DTS5.1-PandaQT.mkv")
         assertThat(r.title).isEqualTo("Cold War")
-        assertThat(r.year).isEqualTo(1994)
+        assertThat(r.year).isEqualTo(2026)
         assertThat(r.mediaType).isEqualTo(MediaType.MOVIE)
         assertThat(r.resolution).isEqualTo("2160p")
         assertThat(r.source).isEqualTo("WEB-DL")
@@ -433,7 +433,7 @@ class FilenameParserTest {
     @Test fun `chinese english mixed title with h265 dts tech tail cleans correctly`() {
         val r = parser.parse("寒战1994.Cold.War.1994.2026.2160p.HQ.WEB-DL.H265.HDR.DTS-QuickIO.mkv")
         assertThat(r.title).isEqualTo("寒战 Cold War")
-        assertThat(r.year).isEqualTo(1994)
+        assertThat(r.year).isEqualTo(2026)
         assertThat(r.mediaType).isEqualTo(MediaType.MOVIE)
     }
 
