@@ -158,6 +158,32 @@ class TmdbCacheRepository @Inject constructor(
     }
 
     /**
+     * P2.4：按 IMDb ID 精确查找（`/find/{external_id}?external_source=imdb_id`）。
+     *
+     * 与 search 一样走 [sessionCache]（同一 IMDb ID 不会重复联网），但不持久化到 Room
+     * （结果随 mediaType/language 维度变化，且命中后立刻走 [getMovie]/[getTv] 详情缓存）。
+     *
+     * 缓存键：`"FIND_IMDB:{imdbId}:{mediaType?:"null"}:{language}"`。
+     * 命中返回轻量 [MediaMetadata]（含 tmdbId/name/year），未命中返回 null（不缓存 null）。
+     */
+    suspend fun findByImdbId(
+        imdbId: String,
+        mediaType: MediaType?,
+        language: String = "zh-CN",
+    ): MediaMetadata? {
+        val cacheKey = "$CACHE_FIND_IMDB:$imdbId:${mediaType ?: "null"}:$language"
+        synchronized(sessionCache) {
+            // null 不缓存：用 sentinel 区分「未查过」与「查过但未命中」
+            sessionCache[cacheKey]?.let { return it.firstOrNull() }
+        }
+        val fresh = buildTmdbClient().findByImdbId(imdbId, mediaType, language)
+        synchronized(sessionCache) {
+            sessionCache[cacheKey] = fresh?.let { listOf(it) } ?: emptyList()
+        }
+        return fresh
+    }
+
+    /**
      * 清空会话级搜索结果内存缓存（Task 3.1/3.2）。
      *
      * 供 MatchViewModel 在重新匹配/重置文件时调用，避免旧搜索结果残留影响下一次匹配。
@@ -297,6 +323,7 @@ class TmdbCacheRepository @Inject constructor(
         const val CACHE_TV = "TV"
         const val CACHE_SEASON = "SEASON"
         const val CACHE_EPISODE_GROUP = "EPISODE_GROUP"
+        const val CACHE_FIND_IMDB = "FIND_IMDB"
     }
 }
 

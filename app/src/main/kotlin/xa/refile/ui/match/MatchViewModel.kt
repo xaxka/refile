@@ -231,7 +231,15 @@ class MatchViewModel @Inject constructor(
                 if (parsed.season != null || parsed.episodes.isNotEmpty()) MatchType.TV else MatchType.MOVIE
         }
 
-    /** 单文件匹配：搜索 → 决策 → 拉详情。 */
+    /**
+     * 单文件匹配：搜索 → 决策 → 拉详情。
+     *
+     * P2.4：若 [ParsedFilename.imdbId] 非空，优先走 [TmdbCacheRepository.findByImdbId] 精确查找，
+     * 命中即视为权威候选直接 Auto（IMDb ID 比 ParsedFilename.title 更可靠）。
+     *
+     * P2.2：若首决策为 NeedsConfirm 且 parsed 携带 SxE，预拉 top 候选的季详情做 SxE 互校，
+     * 命中则填充 candidate.season/episodes 重打分，可能升级为 Auto。
+     */
     private suspend fun runMatchForFile(
         tmdbCache: TmdbCacheRepository,
         parsed: ParsedFilename,
@@ -239,6 +247,33 @@ class MatchViewModel @Inject constructor(
         language: String,
         filePath: String,
     ): FileMatch {
+        // P2.4：IMDb ID 优先级查找
+        if (!parsed.imdbId.isNullOrBlank()) {
+            val findMediaType = when (type) {
+                MatchType.MOVIE -> MediaType.MOVIE
+                MatchType.TV -> MediaType.EPISODE
+                MatchType.AUTO -> null
+            }
+            val found = try {
+                tmdbCache.findByImdbId(parsed.imdbId, findMediaType, language)
+            } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
+                null
+            }
+            if (found != null) {
+                val candidate = found.toMatchCandidate()
+                val meta = fetchDetail(tmdbCache, candidate, parsed, language)
+                return FileMatch(
+                    filePath = filePath,
+                    parsed = parsed,
+                    status = MatchStatus.AUTO,
+                    matched = meta,
+                    candidates = listOf(mediaMetadataToCandidate(found, 1.0)),
+                )
+            }
+            // IMDb 未命中，回退标题搜索
+        }
+
         val title = parsed.title?.takeIf { it.isNotBlank() } ?: ""
         val searchResults = if (type == MatchType.TV) {
             tmdbCache.searchTv(title, parsed.year, language)
@@ -246,22 +281,31 @@ class MatchViewModel @Inject constructor(
             tmdbCache.searchMovie(title, parsed.year, language)
         }
         val candidates = searchResults.map { it.toMatchCandidate() }
-        return when (val decision = engine.match(parsed, candidates)) {
+        val decision = engine.match(parsed, candidates)
+        // P2.2：SxE 互校 — NeedsConfirm 时若 parsed 有 SxE，预拉季详情验证后重打分
+        val finalDecision = if (decision is MatchDecision.NeedsConfirm) {
+            enrichWithSxe(tmdbCache, parsed, decision.candidates, language)?.let { enriched ->
+                engine.match(parsed, enriched)
+            } ?: decision
+        } else {
+            decision
+        }
+        return when (finalDecision) {
             is MatchDecision.Auto -> {
-                val meta = fetchDetail(tmdbCache, decision.best.candidate, parsed, language)
+                val meta = fetchDetail(tmdbCache, finalDecision.best.candidate, parsed, language)
                 FileMatch(
                     filePath = filePath,
                     parsed = parsed,
                     status = MatchStatus.AUTO,
                     matched = meta,
-                    candidates = listOf(toCandidate(decision.best, searchResults)),
+                    candidates = listOf(toCandidate(finalDecision.best, searchResults)),
                 )
             }
             is MatchDecision.NeedsConfirm -> FileMatch(
                 filePath = filePath,
                 parsed = parsed,
                 status = MatchStatus.PENDING,
-                candidates = decision.candidates.map { toCandidate(it, searchResults) },
+                candidates = finalDecision.candidates.map { toCandidate(it, searchResults) },
             )
             MatchDecision.NoMatch -> FileMatch(
                 filePath = filePath,
@@ -269,6 +313,48 @@ class MatchViewModel @Inject constructor(
                 status = MatchStatus.NO_MATCH,
             )
         }
+    }
+
+    /**
+     * P2.2：SxE 互校 — 预拉 top 候选的季详情，验证 parsed.season/episodes 是否存在于该季。
+     *
+     * 仅当 [parsed] 携带 season+episodes、且最高分候选为剧集时尝试；命中则返回填充了 SxE 的候选列表
+     * （交由调用方重打分，sxeBonus 会抬升 top 得分，可能从 NeedsConfirm 升级为 Auto）。
+     * 未命中或不可验证返回 null，调用方沿用原决策。
+     */
+    private suspend fun enrichWithSxe(
+        tmdbCache: TmdbCacheRepository,
+        parsed: ParsedFilename,
+        scored: List<ScoredCandidate>,
+        language: String,
+    ): List<MatchCandidate>? {
+        val seasonNum = parsed.season ?: return null
+        if (parsed.episodes.isEmpty()) return null
+        val top = scored.firstOrNull()?.candidate ?: return null
+        if (top.mediaType != MediaType.EPISODE) return null
+        val season = try {
+            tmdbCache.getSeason(top.tmdbId, seasonNum, language)
+        } catch (t: Throwable) {
+            if (t is kotlinx.coroutines.CancellationException) throw t
+            null
+        } ?: return null
+        val seasonEps = season.episodes.mapNotNull { it.episodeNumber }.toSet()
+        if (seasonEps.intersect(parsed.episodes.toSet()).isEmpty()) return null
+        // SxE 验证通过：仅填充 top 候选，其余保持原样
+        return scored.map { sc ->
+            if (sc.candidate.tmdbId == top.tmdbId) {
+                sc.candidate.copy(season = seasonNum, episodes = parsed.episodes)
+            } else {
+                sc.candidate
+            }
+        }
+    }
+
+    /** 把 [MediaMetadata]（IMDb 命中或搜索结果）转为 UI [Candidate]，海报/简介从 info 取。 */
+    private fun mediaMetadataToCandidate(meta: MediaMetadata, score: Double): Candidate {
+        val posterUrl = meta.info["posterPath"]?.let { TmdbImages.poster(path = it) }
+        val overview = meta.info["overview"]
+        return Candidate(meta.toMatchCandidate(), posterUrl, overview, score)
     }
 
     /**

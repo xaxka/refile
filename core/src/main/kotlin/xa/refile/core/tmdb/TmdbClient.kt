@@ -1,6 +1,7 @@
 package xa.refile.core.tmdb
 
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import xa.refile.core.model.MediaType
 import xa.refile.core.naming.MediaMetadata
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -49,6 +50,40 @@ class TmdbClient internal constructor(
             language = language,
         )
         response.results.map { TmdbMapper.toLightMediaMetadata(it) }
+    }
+
+    /**
+     * P2.4：按 IMDb ID 精确查找（`/find/{external_id}?external_source=imdb_id`）。
+     *
+     * 文件名中解析到 `tt\d{7,8}` 时直接走该端点，绕过标题相似度打分。
+     * [mediaType] 指定取哪个分桶：
+     * - [MediaType.MOVIE]：取 `movie_results` 首个
+     * - [MediaType.EPISODE]：取 `tv_results` 首个
+     * - null：优先 `movie_results`，否则 `tv_results`（AUTO 模式）
+     *
+     * 返回轻量 [MediaMetadata]（与 search 结果同维度），命中后由调用方走 [getMovie]/[getTv] 拉详情。
+     * 未命中返回 null。
+     */
+    suspend fun findByImdbId(
+        imdbId: String,
+        mediaType: MediaType?,
+        language: String = "zh-CN",
+    ): MediaMetadata? = withContext(Dispatchers.IO) {
+        val response = api.findByExternalId(
+            externalId = imdbId,
+            externalSource = "imdb_id",
+            language = language,
+        )
+        when (mediaType) {
+            MediaType.MOVIE -> response.movieResults.firstOrNull()
+                ?.let { TmdbMapper.toLightMediaMetadata(it) }
+            MediaType.EPISODE -> response.tvResults.firstOrNull()
+                ?.let { TmdbMapper.toLightMediaMetadata(it) }
+            null -> response.movieResults.firstOrNull()
+                ?.let { TmdbMapper.toLightMediaMetadata(it) }
+                ?: response.tvResults.firstOrNull()
+                    ?.let { TmdbMapper.toLightMediaMetadata(it) }
+        }
     }
 
     /** 电影详情（append_to_response 合并 credits/external_ids/alternative_titles/translations/release_dates）。 */

@@ -59,4 +59,15 @@ interface TmdbApi {
         @Path("id") id: Int,
         @Query("language") language: String? = null,
     ): CollectionDetail
+
+    /**
+     * `/find/{external_id}`（P2.4）：按外部 ID（imdb_id / tvdb_id / ...）精确查找。
+     * `external_source` 决定 `external_id` 语义。返回按 mediaType 分桶的结果。
+     */
+    @GET("find/{external_id}")
+    suspend fun findByExternalId(
+        @Path("external_id") externalId: String,
+        @Query("external_source") externalSource: String,
+        @Query("language") language: String? = null,
+    ): FindResponse
 }

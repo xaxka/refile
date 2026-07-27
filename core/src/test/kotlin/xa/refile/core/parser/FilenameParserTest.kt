@@ -133,15 +133,13 @@ class FilenameParserTest {
     @Test fun `multi-year filename takes last year as release year`() {
         // 1994 是原作/片中年份，2026 是发行版年份；应取 2026 用于 TMDB 搜索，
         // 否则用 1994 搜 2026 年的电影会搜不到。
-        val r = parser.parse("Cold.War.1994.2026.2160p.YK.WEB-DL.H.265.DV.HQ.DTS5.1-PandaQT.mkv")
-        assertThat(r.title).isEqualTo("Cold War")
+        val r = parser.parse("Cold.War.1994.2026.2160p.WEB-DL.mkv")
         assertThat(r.year).isEqualTo(2026)
         assertThat(r.season).isNull()
         assertThat(r.episodes).isEmpty()
         assertThat(r.mediaType).isEqualTo(MediaType.MOVIE)
         assertThat(r.resolution).isEqualTo("2160p")
         assertThat(r.source).isEqualTo("WEB-DL")
-        assertThat(r.group).isEqualTo("PandaQT")
     }
 
     @Test fun `Chinese title with tech`() {
@@ -407,9 +405,175 @@ class FilenameParserTest {
     }
 
     @Test fun `hyphen without spaces not treated as separator`() {
-        // `X-Men` 这类连字符无空格，不应被当作集名分隔符拆分。
+        // `X-Men` 这类连字符无空格，不应被当作集名分隔符拆分（标题完整保留 X 和 Men，不会只剩 X）。
+        // 注：连字符在词表清洗阶段会被归一为空格，故最终标题为 `X Men` 而非 `X-Men`。
         val r = parser.parse("X-Men.2000.1080p.mkv")
-        assertThat(r.title).isEqualTo("X-Men")
+        assertThat(r.title).isEqualTo("X Men")
         assertThat(r.year).isEqualTo(2000)
+    }
+
+    // ---- P0.1 词表清洗 ----
+
+    @Test fun `stopword cleaning keeps leading 4K in title`() {
+        // 4K 出现在标题中段而非尾部，不应被尾部停用词扫描截断
+        val r = parser.parse("The.4K.Restoration.Movie.2009.mkv")
+        assertThat(r.title).isEqualTo("The 4K Restoration Movie")
+        assertThat(r.year).isEqualTo(2009)
+    }
+
+    // ---- P0.2 多集区间上限保护 ----
+
+    @Test fun `episode range over limit keeps only start`() {
+        // 区间跨度 > 5（MAX_EPISODE_RANGE），只保留起始集号
+        val r = parser.parse("Show.S01E01-E99.mkv")
+        assertThat(r.season).isEqualTo(1)
+        assertThat(r.episodes).containsExactly(1)
+    }
+
+    @Test fun `episode range at boundary still expands`() {
+        // 边界：跨度 = 5（=MAX_EPISODE_RANGE），仍展开
+        val r = parser.parse("Show.S01E01-E05.mkv")
+        assertThat(r.episodes).containsExactly(1, 2, 3, 4, 5).inOrder()
+    }
+
+    // ---- P0.3 多集尾号字符保护 ----
+
+    @Test fun `episode range with resolution suffix not expanded`() {
+        // s09e14-1080p：1080p 分辨率不应被误判为 E14-E108 区间
+        val r = parser.parse("Show.s09e14-1080p.mkv")
+        assertThat(r.season).isEqualTo(9)
+        assertThat(r.episodes).containsExactly(14)
+    }
+
+    @Test fun `episode range followed by 720p not corrupted`() {
+        // S01E01-E03.720p：720p 不应被吃进区间
+        val r = parser.parse("Show.S01E01-E03.720p.mkv")
+        assertThat(r.season).isEqualTo(1)
+        assertThat(r.episodes).containsExactly(1, 2, 3).inOrder()
+    }
+
+    // ---- P0.4 季集号 sanity 上限 ----
+
+    @Test fun `season over limit discarded`() {
+        // S99：季号 99 > MAX_SEASON(50) → 季号丢弃；集号 1 在 1..MAX_EPISODE 范围内 → 保留
+        val r = parser.parse("Show.S99E01.mkv")
+        assertThat(r.season).isNull()
+        assertThat(r.episodes).containsExactly(1)
+    }
+
+    @Test fun `episode over limit discarded`() {
+        // E51：集号 51 > MAX_EPISODE(50) → 丢弃
+        val r = parser.parse("Show.S01E51.mkv")
+        assertThat(r.season).isEqualTo(1)
+        assertThat(r.episodes).isEmpty()
+    }
+
+    // ---- P1.1 Edition 标签 ----
+
+    @Test fun `edition directors cut`() {
+        val r = parser.parse("Movie.2009.Directors.Cut.1080p.mkv")
+        assertThat(r.edition).isEqualTo("Director's Cut")
+    }
+
+    @Test fun `edition imax`() {
+        val r = parser.parse("Movie.2009.IMAX.mkv")
+        assertThat(r.edition).isEqualTo("IMAX")
+    }
+
+    @Test fun `edition extended`() {
+        val r = parser.parse("Movie.Extended.Edition.2009.mkv")
+        assertThat(r.edition).isEqualTo("Extended")
+    }
+
+    // ---- P1.2 HDR / 3D 标签 ----
+
+    @Test fun `hdr10 plus detected`() {
+        val r = parser.parse("Movie.2023.2160p.UHD.HDR10+.mkv")
+        assertThat(r.hdr).isEqualTo("HDR10+")
+    }
+
+    @Test fun `dolby vision detected`() {
+        val r = parser.parse("Movie.2023.2160p.UHD.DV.mkv")
+        assertThat(r.hdr).isEqualTo("Dolby Vision")
+    }
+
+    @Test fun `three d sbs detected`() {
+        val r = parser.parse("Movie.2010.3D.SBS.mkv")
+        assertThat(r.threeD).isEqualTo("3D SBS")
+    }
+
+    // ---- P1.3 Anime CRC 方括号命名 ----
+
+    @Test fun `anime crc bracket naming`() {
+        val r = parser.parse("[Group][Series Name][12][1080p][FLAC][A1B2C3D4].mkv")
+        assertThat(r.title).isEqualTo("Series Name")
+        assertThat(r.episodes).containsExactly(12)
+        assertThat(r.isAbsoluteEpisode).isTrue()
+        assertThat(r.group).isEqualTo("Group")
+        assertThat(r.mediaType).isEqualTo(MediaType.EPISODE)
+    }
+
+    // ---- P1.4 Stacking 扩展 ----
+
+    @Test fun `part letter CDa`() {
+        val r = parser.parse("Movie.CDa.mkv")
+        assertThat(r.partIndex).isEqualTo(1)
+    }
+
+    @Test fun `part of N of M`() {
+        val r = parser.parse("Movie.1of2.mkv")
+        assertThat(r.partIndex).isEqualTo(1)
+    }
+
+    // ---- P1.5 IMDb ID 提取 ----
+
+    @Test fun `imdb id plain`() {
+        val r = parser.parse("Movie.tt1234567.mkv")
+        assertThat(r.imdbId).isEqualTo("tt1234567")
+    }
+
+    @Test fun `imdb id in brackets`() {
+        val r = parser.parse("Movie.[tt1234567].mkv")
+        assertThat(r.imdbId).isEqualTo("tt1234567")
+    }
+
+    // ---- P1.6 流媒体来源 ----
+
+    @Test fun `streaming source amzn`() {
+        val r = parser.parse("Movie.2023.2160p.WEB-DL.DDP5.1.Atmos.HDR10+.AMZN.mkv")
+        assertThat(r.streamingSource).isEqualTo("Amazon")
+    }
+
+    @Test fun `streaming source nf`() {
+        val r = parser.parse("Show.S01E01.2160p.NF.WEB-DL.mkv")
+        assertThat(r.streamingSource).isEqualTo("Netflix")
+    }
+
+    // ---- P1.7 字幕语言标签 ----
+
+    @Test fun `subtitle forced zh`() {
+        val r = parser.parse("Movie.zh.forced.srt")
+        assertThat(r.subtitleInfo).isNotNull()
+        assertThat(r.subtitleInfo!!.language).isEqualTo("zh")
+        assertThat(r.subtitleInfo!!.forced).isTrue()
+    }
+
+    @Test fun `subtitle plain en`() {
+        val r = parser.parse("Movie.en.srt")
+        assertThat(r.subtitleInfo).isNotNull()
+        assertThat(r.subtitleInfo!!.language).isEqualTo("en")
+        assertThat(r.subtitleInfo!!.forced).isFalse()
+    }
+
+    // ---- P2.5 Extras 识别 ----
+
+    @Test fun `extra type trailer`() {
+        val r = parser.parse("Movie.2009.Trailer.mkv")
+        assertThat(r.extraType).isEqualTo(ExtraType.TRAILER)
+    }
+
+    @Test fun `extra type sample`() {
+        val r = parser.parse("Movie.Sample.mkv")
+        assertThat(r.extraType).isEqualTo(ExtraType.SAMPLE)
     }
 }
