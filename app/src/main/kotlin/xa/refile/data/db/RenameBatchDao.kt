@@ -59,27 +59,4 @@ interface RenameBatchDao {
     /** 删除某批次（外键 CASCADE 会连带删除其下条目）。 */
     @Query("DELETE FROM rename_batches WHERE id = :id")
     suspend fun deleteBatch(id: Long)
-
-    /** 统计当前批次总数。 */
-    @Query("SELECT COUNT(*) FROM rename_batches")
-    suspend fun countBatches(): Int
-
-    /**
-     * 仅保留最新 [keep] 条批次（按 createdAt 倒序），删除其余较旧批次。
-     *
-     * 用子查询取出要保留的 id 集合，删除不在该集合内的批次。外键 CASCADE 连带删除其下条目。
-     */
-    @Query(
-        """
-        DELETE FROM rename_batches
-        WHERE id NOT IN (
-            SELECT id FROM rename_batches ORDER BY createdAt DESC LIMIT :keep
-        )
-        """,
-    )
-    suspend fun deleteOldestBeyond(keep: Int)
-
-    /** 删除创建时间早于 [thresholdMillis] 的所有批次。 */
-    @Query("DELETE FROM rename_batches WHERE createdAt < :thresholdMillis")
-    suspend fun deleteOlderThan(thresholdMillis: Long)
 }

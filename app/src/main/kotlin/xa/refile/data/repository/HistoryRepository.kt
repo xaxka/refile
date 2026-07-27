@@ -3,7 +3,6 @@ package xa.refile.data.repository
 import xa.refile.core.rename.CompanionRename
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import xa.refile.core.rename.RenameOperation
 import xa.refile.core.rename.RenameReport
@@ -11,7 +10,6 @@ import xa.refile.core.rename.RenameResult
 import xa.refile.data.db.RenameBatchDao
 import xa.refile.data.db.RenameBatchEntity
 import xa.refile.data.db.RenameEntryEntity
-import xa.refile.data.prefs.SettingsRepository
 import javax.inject.Inject
 
 /**
@@ -50,12 +48,9 @@ data class FailedEntry(
  *
  * 职责：
  * - 透传 [RenameBatchDao] 的 Flow 观察 / 单条查询。
- * - [recordBatch]：[RenameWorker] 执行完成后把 [RenameReport] 落库为一条批次 + 多条条目，
- *   随后按用户保留策略（[SettingsRepository.historyMaxCount] /
- *   [SettingsRepository.historyAutoClearDays]）自动清理过期/超量历史。
+ * - [recordBatch]：[RenameWorker] 执行完成后把 [RenameReport] 落库为一条批次 + 多条条目。
  * - [revertBatch]：取批次条目，**按 id 倒序**反向 MOVE（targetPath → sourcePath，含 companions 反向），
  *   中途失败不中断，最终标记 isReverted=true，返回 [RevertResult]。
- * - [cleanupOnStartup]：应用启动时按保留策略清理一次过期/超量历史。
  *
  * 安全：密码仅经 [ServerRepository.clientFor] 解密用于构造 [WebDavClient]，绝不进入历史/日志。
  * 反向 MOVE 用 `Overwrite: F`，避免覆盖目标已存在文件。
@@ -63,7 +58,6 @@ data class FailedEntry(
 class HistoryRepository @Inject constructor(
     private val dao: RenameBatchDao,
     private val serverRepository: ServerRepository,
-    private val settings: SettingsRepository,
 ) {
 
     /** 观察所有批次（按 createdAt 倒序）。 */
@@ -114,44 +108,7 @@ class HistoryRepository @Inject constructor(
             )
         }
         val batchId = dao.insertBatchWithEntries(batch, entries)
-        // 落库后按保留策略清理超量/过期历史（设置项 historyMaxCount / historyAutoClearDays）。
-        runCatching { enforceRetention() }
         batchId
-    }
-
-    /**
-     * 应用启动时按保留策略清理一次历史。
-     *
-     * 由 [xa.refile.RefileApp.onCreate] 调用：清理 [historyAutoClearDays] 天前的批次，
-     * 并裁剪到 [historyMaxCount] 上限。异常被吞掉，不影响应用启动。
-     */
-    suspend fun cleanupOnStartup() = withContext(Dispatchers.IO) {
-        runCatching { enforceRetention() }
-        Unit
-    }
-
-    /**
-     * 读取保留策略并执行清理：
-     * - [SettingsRepository.historyMaxCount] > 0 → 仅保留最新 N 条，删除更旧的。
-     * - [SettingsRepository.historyAutoClearDays] > 0 → 删除创建时间早于该天数的批次。
-     *
-     * 两个策略独立叠加执行（先按天数删过期，再按条数裁剪超量）。
-     * 任一为 0 表示该维度不限制。
-     */
-    private suspend fun enforceRetention() {
-        val maxCount = settings.historyMaxCount.first()
-        val autoClearDays = settings.historyAutoClearDays.first()
-        if (autoClearDays > 0) {
-            val threshold = System.currentTimeMillis() -
-                autoClearDays.toLong() * MILLIS_PER_DAY
-            dao.deleteOlderThan(threshold)
-        }
-        if (maxCount > 0) {
-            val current = dao.countBatches()
-            if (current > maxCount) {
-                dao.deleteOldestBeyond(maxCount)
-            }
-        }
     }
 
     /**
@@ -273,7 +230,6 @@ class HistoryRepository @Inject constructor(
         const val STATUS_PARTIAL = "PARTIAL"
         const val STATUS_FAILED = "FAILED"
         const val STATUS_SKIPPED = "SKIPPED"
-        private const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
     }
 }
 

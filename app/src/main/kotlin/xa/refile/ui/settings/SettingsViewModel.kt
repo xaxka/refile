@@ -154,11 +154,6 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { _events.emit(SettingsNavEvent.OpenHostsSettings) }
     }
 
-    /** 触发跳转历史记录设置事件。 */
-    fun openHistorySettings() {
-        viewModelScope.launch { _events.emit(SettingsNavEvent.OpenHistorySettings) }
-    }
-
     /** 请求启动 SAF CreateDocument 选择调试日志保存位置（关于分组）。 */
     fun pickLogFile() {
         viewModelScope.launch { _events.emit(SettingsNavEvent.PickLogFile) }
@@ -227,9 +222,6 @@ sealed interface SettingsNavEvent {
 
     /** 跳转 Hosts 设置。 */
     object OpenHostsSettings : SettingsNavEvent
-
-    /** 跳转历史记录设置。 */
-    object OpenHistorySettings : SettingsNavEvent
 
     /** 触发 SAF CreateDocument 选择调试日志保存位置。 */
     object PickLogFile : SettingsNavEvent

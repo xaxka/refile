@@ -20,7 +20,6 @@ import xa.refile.ui.progress.ProgressScreen
 import xa.refile.ui.servers.ServerEditScreen
 import xa.refile.ui.servers.ServerListScreen
 import xa.refile.ui.settings.BackupScreen
-import xa.refile.ui.settings.HistorySettingsScreen
 import xa.refile.ui.settings.HostsSettingsScreen
 import xa.refile.ui.settings.SettingsScreen
 import xa.refile.ui.settings.TemplateEditorScreen
@@ -70,9 +69,6 @@ object Routes {
     /** Hosts 设置路由（Task 5.3.4/5.3.5）。从设置页跳转。 */
     const val HOSTS_SETTINGS = "hosts_settings"
 
-    /** 历史记录设置路由。从设置页跳转。 */
-    const val HISTORY_SETTINGS = "history_settings"
-
     /** 历史记录路由（Task 5.1.3）。单页承载列表 + 详情展开/折叠。 */
     const val HISTORY = "history"
 
@@ -109,9 +105,6 @@ object Routes {
 
     /** Hosts 设置页跳转串。 */
     fun hostsSettings(): String = HOSTS_SETTINGS
-
-    /** 历史记录设置页跳转串。 */
-    fun historySettings(): String = HISTORY_SETTINGS
 
     /** 历史记录页跳转串。 */
     fun history(): String = HISTORY
@@ -259,12 +252,6 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
             )
         }
 
-        composable(Routes.HISTORY_SETTINGS) {
-            HistorySettingsScreen(
-                onBack = { navController.popBackStack() },
-            )
-        }
-
         composable(Routes.HISTORY) {
             HistoryScreen(
                 onBack = { navController.popBackStack() },
@@ -284,7 +271,6 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 onOpenTemplateEditor = { navController.navigate(Routes.templateEditor()) },
                 onOpenBackup = { navController.navigate(Routes.backup()) },
                 onOpenHostsSettings = { navController.navigate(Routes.hostsSettings()) },
-                onOpenHistorySettings = { navController.navigate(Routes.historySettings()) },
             )
         }
 

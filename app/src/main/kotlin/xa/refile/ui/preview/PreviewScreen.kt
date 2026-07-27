@@ -188,7 +188,7 @@ fun PreviewScreen(
                 },
                 title = {
                     Text(
-                        text = "预览重命名",
+                        text = "预览",
                         style = MaterialTheme.typography.titleLarge,
                     )
                 },
