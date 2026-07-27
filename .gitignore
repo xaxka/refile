@@ -95,10 +95,6 @@ fabric.properties
 # Kotlin compiler warning files
 .kotlin/warnings/
 
-# Gradle wrapper binary jar (keep wrapper.properties + wrapper jar source; but if you prefer
-# to NOT commit the wrapper jar, uncomment the next line)
-gradle/wrapper/gradle-wrapper.jar
-
 # Backup / temporary files
 *.bak
 *.tmp
