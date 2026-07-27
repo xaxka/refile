@@ -232,10 +232,37 @@ class MatchViewModel @Inject constructor(
         }
 
     /**
+     * P3.0：tmdbId 短路时 MediaType 必须确定（[TmdbClient.findByTmdbId] 参数非空）。
+     * - MOVIE → [MediaType.MOVIE]
+     * - TV → [MediaType.EPISODE]
+     * - AUTO → 按 parsed.season/episodes 推断：有则 EPISODE，否则 MOVIE
+     */
+    private fun tmdbMediaType(parsed: ParsedFilename, type: MatchType): MediaType = when (type) {
+        MatchType.MOVIE -> MediaType.MOVIE
+        MatchType.TV -> MediaType.EPISODE
+        MatchType.AUTO ->
+            if (parsed.season != null || parsed.episodes.isNotEmpty()) MediaType.EPISODE else MediaType.MOVIE
+    }
+
+    /**
+     * P3.0：tvdbId / imdbId 短路时 MediaType 可为 null（让 [TmdbClient] 自己分桶）。
+     * - MOVIE → [MediaType.MOVIE]
+     * - TV → [MediaType.EPISODE]
+     * - AUTO → null
+     */
+    private fun nullableMediaType(type: MatchType): MediaType? = when (type) {
+        MatchType.MOVIE -> MediaType.MOVIE
+        MatchType.TV -> MediaType.EPISODE
+        MatchType.AUTO -> null
+    }
+
+    /**
      * 单文件匹配：搜索 → 决策 → 拉详情。
      *
-     * P2.4：若 [ParsedFilename.imdbId] 非空，优先走 [TmdbCacheRepository.findByImdbId] 精确查找，
-     * 命中即视为权威候选直接 Auto（IMDb ID 比 ParsedFilename.title 更可靠）。
+     * P3.0：Provider ID 短路 —— 若 [ParsedFilename] 携带 tmdbId/tvdbId/imdbId（优先级 tmdbId > tvdbId > imdbId），
+     * 优先走 [TmdbCacheRepository.findByTmdbId]/[findByTvdbId]/[findByImdbId] 精确查找，命中即视为权威候选
+     * 直接 Auto（ID 比 ParsedFilename.title 更可靠）。短路未命中（端点 404 / 网络失败 / parsed 无 ID）时
+     * 回退到原 search + 相似度打分路径。
      *
      * P2.2：若首决策为 NeedsConfirm 且 parsed 携带 SxE，预拉 top 候选的季详情做 SxE 互校，
      * 命中则填充 candidate.season/episodes 重打分，可能升级为 Auto。
@@ -247,32 +274,49 @@ class MatchViewModel @Inject constructor(
         language: String,
         filePath: String,
     ): FileMatch {
-        // P2.4：IMDb ID 优先级查找
-        val imdbId = parsed.imdbId
-        if (!imdbId.isNullOrBlank()) {
-            val findMediaType = when (type) {
-                MatchType.MOVIE -> MediaType.MOVIE
-                MatchType.TV -> MediaType.EPISODE
-                MatchType.AUTO -> null
+        // P3.0：Provider ID 短路（tmdbId > tvdbId > imdbId）。
+        // matchByIds 内部检查 parsed 是否携带任一 ID；未携带或 lookup 返回 null 时返回 null，调用方回退。
+        var hitMeta: MediaMetadata? = null
+        val idDecision = engine.matchByIds(parsed) { p ->
+            val hit: MediaMetadata? = when {
+                // tmdbId 短路：MediaType 必须确定，AUTO 时按 parsed.season/episodes 推断
+                p.tmdbId != null -> try {
+                    tmdbCache.findByTmdbId(p.tmdbId, tmdbMediaType(p, type), language)
+                } catch (t: Throwable) {
+                    if (t is kotlinx.coroutines.CancellationException) throw t
+                    null
+                }
+                // tvdbId 短路：MediaType 可为 null（让 TmdbClient 自己分桶）
+                p.tvdbId != null -> try {
+                    tmdbCache.findByTvdbId(p.tvdbId, nullableMediaType(type), language)
+                } catch (t: Throwable) {
+                    if (t is kotlinx.coroutines.CancellationException) throw t
+                    null
+                }
+                // imdbId 短路：保留 P2.4 原行为，AUTO 时传 null
+                !p.imdbId.isNullOrBlank() -> try {
+                    tmdbCache.findByImdbId(p.imdbId!!, nullableMediaType(type), language)
+                } catch (t: Throwable) {
+                    if (t is kotlinx.coroutines.CancellationException) throw t
+                    null
+                }
+                else -> null
             }
-            val found = try {
-                tmdbCache.findByImdbId(imdbId, findMediaType, language)
-            } catch (t: Throwable) {
-                if (t is kotlinx.coroutines.CancellationException) throw t
-                null
-            }
-            if (found != null) {
-                val candidate = found.toMatchCandidate()
-                val meta = fetchDetail(tmdbCache, candidate, parsed, language)
-                return FileMatch(
-                    filePath = filePath,
-                    parsed = parsed,
-                    status = MatchStatus.AUTO,
-                    matched = meta,
-                    candidates = listOf(mediaMetadataToCandidate(found, 1.0)),
-                )
-            }
-            // IMDb 未命中，回退标题搜索
+            hitMeta = hit
+            hit?.toMatchCandidate()
+        }
+        if (idDecision is MatchDecision.Auto) {
+            // 短路命中：fetchDetail 拉完整详情（TV 类型补 seasonNumber/episodeTitles），避免 hitMeta 是轻量元数据
+            val found = hitMeta!!
+            val meta = fetchDetail(tmdbCache, idDecision.best.candidate, parsed, language)
+            return FileMatch(
+                filePath = filePath,
+                parsed = parsed,
+                status = MatchStatus.AUTO,
+                matched = meta,
+                candidates = listOf(mediaMetadataToCandidate(found, 1.0)),
+            )
+            // 短路未命中（matchByIds 返回 null）→ 回退到 search + score 路径
         }
 
         val title = parsed.title?.takeIf { it.isNotBlank() } ?: ""
@@ -571,6 +615,8 @@ class MatchViewModel @Inject constructor(
         year = year,
         popularity = info["popularity"]?.toDoubleOrNull() ?: 0.0,
         mediaType = type,
+        voteAverage = rating ?: 0.0,
+        voteCount = votes ?: 0,
     )
 
     /** 把评分候选 + 搜索结果拼成 UI [Candidate]（海报/简介从搜索结果 info 取）。 */

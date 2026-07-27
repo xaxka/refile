@@ -597,4 +597,100 @@ class FilenameParserTest {
         val r = parser.parse("Movie.Sample.mkv")
         assertThat(r.extraType).isEqualTo(ExtraType.SAMPLE)
     }
+
+    // ---- P3.0 Provider ID ----
+    @Test fun `tmdb id from bracket`() {
+        val r = parser.parse("Movie [tmdbid-12345].mkv")
+        assertThat(r.tmdbId).isEqualTo(12345)
+    }
+    @Test fun `tmdb id from url`() {
+        val r = parser.parse("Movie.themoviedb.org-movie-123.mkv")
+        assertThat(r.tmdbId).isEqualTo(123)
+    }
+    @Test fun `tvdb id from bracket`() {
+        val r = parser.parse("Show [tvdbid-12345].mkv")
+        assertThat(r.tvdbId).isEqualTo(12345)
+    }
+    @Test fun `imdb id from url`() {
+        val r = parser.parse("Show.imdb.com-title-tt0123456.mkv")
+        assertThat(r.imdbId).isEqualTo("tt0123456")
+    }
+    @Test fun `imdb id six digits`() {
+        val r = parser.parse("Movie tt012345.mkv")
+        assertThat(r.imdbId).isEqualTo("tt012345")
+    }
+
+    // ---- P3.0 Season/Episode 字面词 ----
+    @Test fun `Season X Episode Y literal`() {
+        val r = parser.parse("Show Season 1 Episode 2.mkv")
+        assertThat(r.season).isEqualTo(1)
+        assertThat(r.episodes).containsExactly(2)
+    }
+    @Test fun `Episode N standalone`() {
+        val r = parser.parse("Show Episode 16.mkv")
+        assertThat(r.episodes).containsExactly(16)
+    }
+    @Test fun `Episode N range`() {
+        val r = parser.parse("Show Episode 16-20.mkv")
+        assertThat(r.episodes).containsExactly(16, 17, 18, 19, 20).inOrder()
+    }
+    @Test fun `Staffel X Episode Y`() {
+        val r = parser.parse("Show Staffel 2 Episode 5.mkv")
+        assertThat(r.season).isEqualTo(2)
+        assertThat(r.episodes).containsExactly(5)
+    }
+    @Test fun `Saison X only`() {
+        val r = parser.parse("Show Saison 3.mkv")
+        assertThat(r.season).isEqualTo(3)
+        assertThat(r.episodes).isEmpty()
+    }
+
+    // ---- P3.0 Episode 字母后缀 ----
+    @Test fun `S01E02a letter suffix`() {
+        val r = parser.parse("Show S01E02a.mkv")
+        assertThat(r.season).isEqualTo(1)
+        assertThat(r.episodes).containsExactly(2)
+        assertThat(r.episodeSubPart).isEqualTo("a")
+    }
+    @Test fun `1x02b letter suffix`() {
+        val r = parser.parse("Show 1x02b.mkv")
+        assertThat(r.episodes).containsExactly(2)
+        assertThat(r.episodeSubPart).isEqualTo("b")
+    }
+    @Test fun `S01E02 no suffix`() {
+        val r = parser.parse("Show S01E02.mkv")
+        assertThat(r.episodeSubPart).isNull()
+    }
+
+    // ---- P3.0 Anime Special/OVA ----
+    @Test fun `OVA detected as season 0`() {
+        val r = parser.parse("Show OVA.mkv")
+        assertThat(r.season).isEqualTo(0)
+    }
+    @Test fun `Special in bracket`() {
+        val r = parser.parse("[Group] Show - [Special].mkv")
+        assertThat(r.season).isEqualTo(0)
+    }
+
+    // ---- P3.0 日期与分辨率 ----
+    @Test fun `daily show EU date`() {
+        val r = parser.parse("Show 15.01.2024.mkv")
+        assertThat(r.isDailyShow).isTrue()
+    }
+    @Test fun `WxH resolution`() {
+        val r = parser.parse("Movie 1920x1080.mkv")
+        assertThat(r.resolution).isEqualTo("1080p")
+    }
+    @Test fun `WxH does not override height+p`() {
+        val r = parser.parse("Movie 1080p 1920x1080.mkv")
+        assertThat(r.resolution).isEqualTo("1080p")
+    }
+    @Test fun `Part Roman II`() {
+        val r = parser.parse("Movie Part II.mkv")
+        assertThat(r.partIndex).isEqualTo(2)
+    }
+    @Test fun `Pt IV roman`() {
+        val r = parser.parse("Movie Pt IV.mkv")
+        assertThat(r.partIndex).isEqualTo(4)
+    }
 }

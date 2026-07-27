@@ -120,7 +120,7 @@ object PipeModifiers {
                 .joinToString("")
             "roman" -> toRoman(value.toStr().toIntOrNull() ?: 0)
             // 清洗与转写
-            "clean" -> value.toStr().replace(Regex("[\\\\/:*?\"<>|]"), "").trim()
+            "clean" -> value.toStr().replace(Regex("[\\\\/:*?\"<>|`\\t\\r\\n\\f\\u0000]"), "").trim()
             // 移除尾部括号组，如 "Show (US)" -> "Show"
             "replaceTrailingBrackets" ->
                 value.toStr().replace(Regex("\\s*[\\[(\\{].*?[\\])\\}]\\s*$"), "").trim()
@@ -131,7 +131,7 @@ object PipeModifiers {
             }
             "ascii" -> value.toStr().map { if (it.code < 128) it else '?' }.joinToString("")
             "transliterate" -> value.toStr().map { if (it.code < 128) it else '?' }.joinToString("")
-            "validateFileName" -> value.toStr().replace(Regex("[\\\\/:*?\"<>|]"), "-").trim()
+            "validateFileName" -> value.toStr().replace(Regex("[\\\\/:*?\"<>|`\\t\\r\\n\\f\\u0000]"), "-").trim()
             // 列表
             "joining" -> {
                 val sep = args.getOrNull(0) ?: ","

@@ -86,6 +86,64 @@ class TmdbClient internal constructor(
         }
     }
 
+    /**
+     * P3.0：按 TMDB ID 直接拉详情（绕过搜索）。
+     *
+     * 文件名解析出 `[tmdbid-123]` 或 `themoviedb.org/movie/123` 时直接走详情端点，
+     * 跳过 search + 相似度打分。与 [findByImdbId] 的关键区别：返回完整 [MediaMetadata]
+     * （带 credits/aliases/localize 等详情字段），命中后调用方无需再走 [getMovie]/[getTv]
+     * 拉详情，可直接使用返回值构造 [MatchDecision.Auto]。
+     *
+     * [mediaType] 必须确定（非空）：
+     * - [MediaType.MOVIE]：调用 [getMovie]（即 `/movie/{id}?append_to_response=...`）
+     * - [MediaType.EPISODE]：调用 [getTv]（即 `/tv/{id}?append_to_response=...`）
+     *
+     * 注：参数为非空类型，编译期保证 null 不会被传入；调用方在 MatchType.AUTO 时应根据
+     * parsed.season/episodes 推断（有则 EPISODE 否则 MOVIE），不要把 null 透传到本方法。
+     */
+    suspend fun findByTmdbId(
+        tmdbId: Int,
+        mediaType: MediaType,
+        language: String = "zh-CN",
+    ): MediaMetadata = when (mediaType) {
+        MediaType.MOVIE -> getMovie(tmdbId, language)
+        MediaType.EPISODE -> getTv(tmdbId, language)
+    }
+
+    /**
+     * P3.0：按 TVDB ID 精确查找（`/find/{external_id}?external_source=tvdb_id`）。
+     *
+     * 文件名解析出 `[tvdbid-123]` 或 `thetvdb.com/series/123` 时直接走该端点。
+     * 与 [findByImdbId] 一致的分桶逻辑：
+     * - [MediaType.MOVIE]：取 `movie_results` 首个
+     * - [MediaType.EPISODE]：取 `tv_results` 首个
+     * - null：优先 `movie_results`，否则 `tv_results`（AUTO 模式）
+     *
+     * 返回轻量 [MediaMetadata]（与 search 结果同维度），命中后由调用方走 [getMovie]/[getTv] 拉详情。
+     * 未命中返回 null。
+     */
+    suspend fun findByTvdbId(
+        tvdbId: Int,
+        mediaType: MediaType?,
+        language: String = "zh-CN",
+    ): MediaMetadata? = withContext(Dispatchers.IO) {
+        val response = api.findByExternalId(
+            externalId = tvdbId.toString(),
+            externalSource = "tvdb_id",
+            language = language,
+        )
+        when (mediaType) {
+            MediaType.MOVIE -> response.movieResults.firstOrNull()
+                ?.let { TmdbMapper.toLightMediaMetadata(it) }
+            MediaType.EPISODE -> response.tvResults.firstOrNull()
+                ?.let { TmdbMapper.toLightMediaMetadata(it) }
+            null -> response.movieResults.firstOrNull()
+                ?.let { TmdbMapper.toLightMediaMetadata(it) }
+                ?: response.tvResults.firstOrNull()
+                    ?.let { TmdbMapper.toLightMediaMetadata(it) }
+        }
+    }
+
     /** 电影详情（append_to_response 合并 credits/external_ids/alternative_titles/translations/release_dates）。 */
     suspend fun getMovie(
         id: Int,

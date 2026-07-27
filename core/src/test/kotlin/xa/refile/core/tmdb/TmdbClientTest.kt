@@ -1,6 +1,7 @@
 package xa.refile.core.tmdb
 
 import com.google.common.truth.Truth.assertThat
+import xa.refile.core.model.MediaType
 import xa.refile.core.naming.MediaMetadata
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -406,5 +407,217 @@ class TmdbClientTest {
         val result = client.enrichWithCollection(base)
         assertThat(result).isEqualTo(base)
         assertThat(server.requestCount).isEqualTo(0)
+    }
+
+    // ---- P3.0 findByTmdbId / findByTvdbId ----
+
+    @Test fun `findByTmdbId for movie calls movieDetail endpoint`() = runBlocking {
+        // findByTmdbId(MOVIE) 内部就是 getMovie；mock /movie/{id} 响应，断言返回完整 MediaMetadata
+        server.enqueue(
+            MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {
+                      "id": 603,
+                      "title": "The Matrix",
+                      "original_title": "The Matrix",
+                      "release_date": "1999-03-30",
+                      "overview": "Set in the 22nd century...",
+                      "tagline": "Welcome to the Real World.",
+                      "runtime": 136,
+                      "imdb_id": "tt0133093",
+                      "vote_average": 8.2,
+                      "vote_count": 26000,
+                      "genres": [{"id": 878, "name": "Science Fiction"}],
+                      "credits": {"cast": [], "crew": [{"id": 1, "name": "Lana Wachowski", "job": "Director"}]},
+                      "external_ids": {"imdb_id": "tt0133093"},
+                      "alternative_titles": {"results": [{"iso_3166_1": "US", "title": "Matrix"}]},
+                      "translations": {"translations": []},
+                      "release_dates": {"results": []}
+                    }
+                    """.trimIndent(),
+                ),
+        )
+
+        val m = client.findByTmdbId(603, MediaType.MOVIE, language = "zh-CN")
+
+        // 验证请求路径命中 /movie/{id} 且带 append_to_response
+        val recorded = server.takeRequest()
+        assertThat(recorded.path).startsWith("/movie/603")
+        assertThat(recorded.path).contains("append_to_response=")
+        assertThat(recorded.path).contains("language=zh-CN")
+
+        // 验证返回的是完整 MediaMetadata（含 credits/aliases/localize 等详情字段）
+        assertThat(m.id).isEqualTo(603)
+        assertThat(m.tmdbId).isEqualTo(603)
+        assertThat(m.name).isEqualTo("The Matrix")
+        assertThat(m.year).isEqualTo(1999)
+        assertThat(m.runtime).isEqualTo(136)
+        assertThat(m.imdbId).isEqualTo("tt0133093")
+        assertThat(m.rating).isEqualTo(8.2)
+        assertThat(m.votes).isEqualTo(26000)
+        assertThat(m.director).isEqualTo("Lana Wachowski")
+        assertThat(m.aliases).containsExactly("Matrix")
+        assertThat(m.genres).containsExactly("Science Fiction").inOrder()
+    }
+
+    @Test fun `findByTmdbId for tv calls tvDetail endpoint`() = runBlocking {
+        // findByTmdbId(EPISODE) 内部就是 getTv；mock /tv/{id} 响应，断言返回完整 MediaMetadata
+        server.enqueue(
+            MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {
+                      "id": 100088,
+                      "name": "The Last of Us",
+                      "original_name": "The Last of Us",
+                      "first_air_date": "2023-01-15",
+                      "overview": "Twenty years after modern civilization has been destroyed...",
+                      "number_of_seasons": 2,
+                      "number_of_episodes": 16,
+                      "episode_run_time": [60],
+                      "genres": [{"id": 18, "name": "Drama"}],
+                      "created_by": [{"id": 1, "name": "Craig Mazin"}],
+                      "origin_country": ["US"],
+                      "original_language": "en",
+                      "production_countries": [{"iso_3166_1": "US", "name": "United States"}],
+                      "spoken_languages": [{"iso_639_1": "en", "name": "English"}],
+                      "vote_average": 8.4,
+                      "vote_count": 5000,
+                      "credits": {"cast": [], "crew": []},
+                      "external_ids": {"imdb_id": "tt3581920", "tvdb_id": "390494"},
+                      "alternative_titles": {"results": []},
+                      "translations": {"translations": []},
+                      "content_ratings": {"results": [{"iso_3166_1": "US", "rating": "TV-MA"}]},
+                      "episode_groups": {"results": []}
+                    }
+                    """.trimIndent(),
+                ),
+        )
+
+        val m = client.findByTmdbId(100088, MediaType.EPISODE)
+
+        // 验证请求路径命中 /tv/{id} 且带 append_to_response
+        val recorded = server.takeRequest()
+        assertThat(recorded.path).startsWith("/tv/100088")
+        assertThat(recorded.path).contains("append_to_response=")
+
+        // 验证返回的是完整 MediaMetadata
+        assertThat(m.id).isEqualTo(100088)
+        assertThat(m.tmdbId).isEqualTo(100088)
+        assertThat(m.name).isEqualTo("The Last of Us")
+        assertThat(m.year).isEqualTo(2023)
+        assertThat(m.numberOfSeasons).isEqualTo(2)
+        assertThat(m.director).isEqualTo("Craig Mazin")
+        assertThat(m.certification).isEqualTo("TV-MA")
+        assertThat(m.tvdbId).isEqualTo("390494")
+        assertThat(m.imdbId).isEqualTo("tt3581920")
+    }
+
+    @Test fun `findByTvdbId returns movie result when mediaType is MOVIE`() = runBlocking {
+        // mock /find/{id}?external_source=tvdb_id 响应包含 movie_results，断言返回 MediaMetadata
+        server.enqueue(
+            MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {
+                      "movie_results": [
+                        {
+                          "id": 603,
+                          "title": "The Matrix",
+                          "original_title": "The Matrix",
+                          "release_date": "1999-03-30",
+                          "overview": "Set in the 22nd century...",
+                          "poster_path": "/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg",
+                          "vote_average": 8.2,
+                          "popularity": 50.0
+                        }
+                      ],
+                      "tv_results": [],
+                      "tv_episode_results": [],
+                      "tv_season_results": []
+                    }
+                    """.trimIndent(),
+                ),
+        )
+
+        val m = client.findByTvdbId(123, MediaType.MOVIE)
+
+        // 验证请求路径命中 /find/{external_id}?external_source=tvdb_id
+        val recorded = server.takeRequest()
+        assertThat(recorded.path).startsWith("/find/123")
+        assertThat(recorded.path).contains("external_source=tvdb_id")
+        assertThat(recorded.path).contains("language=zh-CN")
+
+        // 验证返回的是轻量 MediaMetadata（movie_results 首个）
+        assertThat(m).isNotNull()
+        assertThat(m!!.id).isEqualTo(603)
+        assertThat(m.tmdbId).isEqualTo(603)
+        assertThat(m.name).isEqualTo("The Matrix")
+        assertThat(m.year).isEqualTo(1999)
+        assertThat(m.rating).isEqualTo(8.2)
+        assertThat(m.type).isEqualTo(MediaType.MOVIE)
+    }
+
+    @Test fun `findByTvdbId returns null when no results`() = runBlocking {
+        // mock /find 响应空（所有桶均空），断言返回 null
+        server.enqueue(
+            MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {
+                      "movie_results": [],
+                      "tv_results": [],
+                      "tv_episode_results": [],
+                      "tv_season_results": []
+                    }
+                    """.trimIndent(),
+                ),
+        )
+
+        val m = client.findByTvdbId(999, null)
+        assertThat(m).isNull()
+
+        val recorded = server.takeRequest()
+        assertThat(recorded.path).startsWith("/find/999")
+        assertThat(recorded.path).contains("external_source=tvdb_id")
+    }
+
+    @Test fun `findByTvdbId returns tv result when mediaType is null and only tv_results present`() = runBlocking {
+        // mock /find 响应只含 tv_results，mediaType=null → 返回 tv 候选
+        server.enqueue(
+            MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {
+                      "movie_results": [],
+                      "tv_results": [
+                        {
+                          "id": 100088,
+                          "name": "The Last of Us",
+                          "original_name": "The Last of Us",
+                          "first_air_date": "2023-01-15",
+                          "overview": "Twenty years after...",
+                          "poster_path": "/uYrF9PMZLrQy6JUXV3V7ZXcdnB0.jpg",
+                          "vote_average": 8.4,
+                          "popularity": 100.0,
+                          "origin_country": ["US"]
+                        }
+                      ],
+                      "tv_episode_results": [],
+                      "tv_season_results": []
+                    }
+                    """.trimIndent(),
+                ),
+        )
+
+        val m = client.findByTvdbId(390494, null)
+        assertThat(m).isNotNull()
+        assertThat(m!!.id).isEqualTo(100088)
+        assertThat(m.tmdbId).isEqualTo(100088)
+        assertThat(m.name).isEqualTo("The Last of Us")
+        assertThat(m.year).isEqualTo(2023)
+        assertThat(m.type).isEqualTo(MediaType.EPISODE)
+        assertThat(m.originCountries).containsExactly("US").inOrder()
     }
 }

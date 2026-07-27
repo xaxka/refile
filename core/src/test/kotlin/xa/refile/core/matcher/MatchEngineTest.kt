@@ -1,6 +1,7 @@
 package xa.refile.core.matcher
 
 import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.runBlocking
 import xa.refile.core.model.MediaType
 import xa.refile.core.parser.ParsedFilename
 import org.junit.Test
@@ -68,7 +69,7 @@ class MatchEngineTest {
     // ---- P0.5 年份惩罚（线性） ----
 
     @Test fun `P0_5 year exact match yields minimal penalty`() {
-        // diff=0 → penalty=0.01；标题完全相同 + 第二候选完全不同 → 自动匹配
+        // diff=0 → penalty=0.0（±1 容差）；标题完全相同 + 第二候选完全不同 → 自动匹配
         val parsed = ParsedFilename(title = "Inception", year = 2010)
         val candidates = listOf(
             MatchCandidate(tmdbId = 1, name = "Inception", year = 2010, popularity = 60.0),
@@ -435,5 +436,288 @@ class MatchEngineTest {
         val decision = engine.match(parsed, candidates)
         assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
         assertThat((decision as MatchDecision.NeedsConfirm).candidates.first().candidate.tmdbId).isEqualTo(1)
+    }
+
+    // ---- originalName 参与标题评分（P3.0） ----
+
+    @Test fun `originalName match boosts score over name-only candidate`() {
+        // 解析标题为 CJK 原名，候选英文名 + originalName CJK → 原名维度命中让分数高于无 originalName 的同名候选
+        // 参考 spec ADDED Requirement "originalName 参与标题评分" Scenario: 原名命中
+        val scorer = ConfidenceScorer()
+        val parsed = ParsedFilename(title = "攻壳机动队", year = 1995)
+        val withOriginal = MatchCandidate(
+            tmdbId = 1,
+            name = "Ghost in the Shell",
+            originalName = "攻殻機動隊",
+            year = 1995,
+            popularity = 5.0,
+        )
+        val withoutOriginal = MatchCandidate(
+            tmdbId = 2,
+            name = "Ghost in the Shell",
+            year = 1995,
+            popularity = 5.0,
+        )
+        // 有 originalName 时 Jaro-Winkler 在 CJK 简繁体间给出非零相似度，无 originalName 时为 0
+        assertThat(scorer.score(parsed, withOriginal)).isGreaterThan(scorer.score(parsed, withoutOriginal))
+    }
+
+    @Test fun `originalName match ranks candidate first in needs confirm`() {
+        // 原名命中后候选分数提升，在 match 结果中排第一（分数未达 autoThreshold → NeedsConfirm）
+        val parsed = ParsedFilename(title = "攻壳机动队", year = 1995)
+        val candidates = listOf(
+            MatchCandidate(
+                tmdbId = 1,
+                name = "Ghost in the Shell",
+                originalName = "攻殻機動隊",
+                year = 1995,
+                popularity = 5.0,
+            ),
+            MatchCandidate(
+                tmdbId = 2,
+                name = "Ghost in the Shell",
+                year = 1995,
+                popularity = 5.0,
+            ),
+        )
+        val decision = engine.match(parsed, candidates)
+        // 两个候选分数都未达 autoThreshold → NeedsConfirm；但带 originalName 的应排第一
+        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
+        assertThat((decision as MatchDecision.NeedsConfirm).candidates.first().candidate.tmdbId).isEqualTo(1)
+    }
+
+    // ---- 年份 ±1 容差（P3.0 修订） ----
+
+    @Test fun `year diff within 1 yields zero penalty`() {
+        // |sy - cy| <= 1 → penalty=0；与年份相同场景分数一致（spec Scenario: 年份差 1）
+        val scorer = ConfidenceScorer()
+        val parsed = ParsedFilename(title = "Inception", year = 2010)
+        val sameYear = MatchCandidate(tmdbId = 1, name = "Inception", year = 2010, popularity = 50.0)
+        val diffOne = MatchCandidate(tmdbId = 2, name = "Inception", year = 2009, popularity = 50.0)
+        assertThat(scorer.score(parsed, sameYear)).isEqualTo(scorer.score(parsed, diffOne))
+    }
+
+    @Test fun `year diff 5 still applies linear penalty`() {
+        // |sy - cy| = 5 → penalty=0.01 + 5/1000 = 0.015；与年份相同场景分数差 0.015（spec Scenario: 年份差 5）
+        val scorer = ConfidenceScorer()
+        val parsed = ParsedFilename(title = "Inception", year = 2010)
+        val sameYear = MatchCandidate(tmdbId = 1, name = "Inception", year = 2010, popularity = 50.0)
+        val diffFive = MatchCandidate(tmdbId = 2, name = "Inception", year = 2015, popularity = 50.0)
+        val scoreSame = scorer.score(parsed, sameYear)
+        val scoreDiff = scorer.score(parsed, diffFive)
+        // diff=0 → penalty=0；diff=5 → penalty=0.015；其它维度相同 → 分数差恰好 0.015
+        assertThat(scoreSame - scoreDiff).isWithin(1e-9).of(0.015)
+    }
+
+    // ---- P3.0 同分破平局（vote_average / vote_count / 年份近度） ----
+
+    @Test fun `P3_0 tie break prefers higher vote_average when scores equal`() {
+        // 等分时优先热门剧：构造同名同 year 候选使 score 完全相等，A 的 vote_average 更高 → A 排前
+        // spec ADDED Requirement: 同分破平局 Scenario: 等分时优先热门
+        val parsed = ParsedFilename(title = "The Matrix", year = 1999)
+        val candidates = listOf(
+            MatchCandidate(
+                tmdbId = 1, name = "The Matrix", year = 1999, popularity = 50.0,
+                voteAverage = 8.5, voteCount = 5000,
+            ),
+            MatchCandidate(
+                tmdbId = 2, name = "The Matrix", year = 1999, popularity = 50.0,
+                voteAverage = 6.0, voteCount = 20,
+            ),
+        )
+        val decision = engine.match(parsed, candidates)
+        // 两候选等分 → secondGap=0 < margin → NeedsConfirm（gap < margin）
+        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
+        // 破平局后 A（vote_average=8.5）应排在 B（vote_average=6.0）之前
+        assertThat((decision as MatchDecision.NeedsConfirm).candidates.first().candidate.tmdbId).isEqualTo(1)
+    }
+
+    @Test fun `P3_0 tie break skipped when vote_count below 20 for one side`() {
+        // vote_count<20 的候选不参与破平局：A 不参与（voteCount=10），B 参与（voteCount=20）→ B 排前
+        // spec MODIFIED Requirement: MatchEngine 决策 —— vote_count<20 不参与破平局
+        val parsed = ParsedFilename(title = "The Matrix", year = 1999)
+        val candidates = listOf(
+            MatchCandidate(
+                tmdbId = 1, name = "The Matrix", year = 1999, popularity = 50.0,
+                voteAverage = 8.5, voteCount = 10,  // < 20，不参与破平局
+            ),
+            MatchCandidate(
+                tmdbId = 2, name = "The Matrix", year = 1999, popularity = 50.0,
+                voteAverage = 6.0, voteCount = 20,  // 参与
+            ),
+        )
+        val decision = engine.match(parsed, candidates)
+        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
+        // A 不参与，B 参与 → 满足资格的 B 优先
+        assertThat((decision as MatchDecision.NeedsConfirm).candidates.first().candidate.tmdbId).isEqualTo(2)
+    }
+
+    @Test fun `P3_0 tie break keeps original order when both candidates ineligible`() {
+        // 双方 vote_count 都 <20 → 都不参与破平局 → 保持原 score 排序位置（输入顺序）
+        val parsed = ParsedFilename(title = "The Matrix", year = 1999)
+        val candidates = listOf(
+            MatchCandidate(
+                tmdbId = 1, name = "The Matrix", year = 1999, popularity = 50.0,
+                voteAverage = 8.5, voteCount = 10,  // < 20
+            ),
+            MatchCandidate(
+                tmdbId = 2, name = "The Matrix", year = 1999, popularity = 50.0,
+                voteAverage = 6.0, voteCount = 5,   // < 20
+            ),
+        )
+        val decision = engine.match(parsed, candidates)
+        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
+        // 两者都不参与 → 保持原序（A 在输入顺序中排前）
+        assertThat((decision as MatchDecision.NeedsConfirm).candidates.first().candidate.tmdbId).isEqualTo(1)
+    }
+
+    @Test fun `P3_0 tie break not triggered when score gap exceeds margin`() {
+        // 分差大时不触发破平局：A 分数远高于 B（标题完全匹配 vs 完全不同），即便 B 的 vote 更高，A 仍排第一
+        // spec ADDED Requirement: 同分破平局 Scenario: 分差大时不触发
+        val parsed = ParsedFilename(title = "The Matrix", year = 1999)
+        val candidates = listOf(
+            MatchCandidate(
+                tmdbId = 1, name = "The Matrix", year = 1999, popularity = 50.0,
+                voteAverage = 6.0, voteCount = 20,  // 较低 vote
+            ),
+            MatchCandidate(
+                tmdbId = 2, name = "Totally Different Movie", year = 1985, popularity = 5.0,
+                voteAverage = 8.5, voteCount = 5000,  // 较高 vote
+            ),
+        )
+        val decision = engine.match(parsed, candidates)
+        // A 标题完全匹配 + 年份相同 → 高分；B 标题完全不同 → 低分；分差 > margin → 不触发破平局
+        // A score ≈ 0.87 >= autoThreshold 且 gap >= margin → Auto
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+        assertThat((decision as MatchDecision.Auto).best.candidate.tmdbId).isEqualTo(1)
+    }
+
+    @Test fun `P3_0 tie break falls back to vote_count when vote_average equal`() {
+        // vote_average 相等时按 vote_count 降序破平局
+        val parsed = ParsedFilename(title = "The Matrix", year = 1999)
+        val candidates = listOf(
+            MatchCandidate(
+                tmdbId = 1, name = "The Matrix", year = 1999, popularity = 50.0,
+                voteAverage = 8.0, voteCount = 100,   // 较少投票
+            ),
+            MatchCandidate(
+                tmdbId = 2, name = "The Matrix", year = 1999, popularity = 50.0,
+                voteAverage = 8.0, voteCount = 5000,  // 更多投票
+            ),
+        )
+        val decision = engine.match(parsed, candidates)
+        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
+        // vote_average 相等 → vote_count 高者（B=5000）排前
+        assertThat((decision as MatchDecision.NeedsConfirm).candidates.first().candidate.tmdbId).isEqualTo(2)
+    }
+
+    @Test fun `P3_0 tie break falls back to year proximity when votes equal`() {
+        // vote_average 与 vote_count 都相等时按年份近度升序破平局
+        // 利用 ±1 年份容差（yearPenalty=0）构造等分候选：A year=1999，B year=2000
+        val parsed = ParsedFilename(title = "The Matrix", year = 1999)
+        val candidates = listOf(
+            MatchCandidate(
+                tmdbId = 1, name = "The Matrix", year = 1999, popularity = 50.0,
+                voteAverage = 8.0, voteCount = 100,  // 距 parsed.year=0
+            ),
+            MatchCandidate(
+                tmdbId = 2, name = "The Matrix", year = 2000, popularity = 50.0,
+                voteAverage = 8.0, voteCount = 100,  // 距 parsed.year=1（±1 容差内，penalty=0，等分）
+            ),
+        )
+        val decision = engine.match(parsed, candidates)
+        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
+        // vote_average/vote_count 相等 → 年份近度小者（A，距离 0）排前
+        assertThat((decision as MatchDecision.NeedsConfirm).candidates.first().candidate.tmdbId).isEqualTo(1)
+    }
+
+    @Test fun `P3_0 tie break does not bypass autoThreshold`() {
+        // 破平局后 best 仍需 score >= autoThreshold 才 Auto；否则 NeedsConfirm
+        // 构造两个标题近似但不完全匹配的候选，分数都 < autoThreshold，破平局触发后仍需确认
+        val parsed = ParsedFilename(title = "The Matrix", year = 1999)
+        val candidates = listOf(
+            MatchCandidate(
+                tmdbId = 1, name = "The Matrix Reloaded", year = 2003, popularity = 5.0,
+                voteAverage = 8.5, voteCount = 5000,  // vote 高
+            ),
+            MatchCandidate(
+                tmdbId = 2, name = "The Matrix Revolutions", year = 2003, popularity = 5.0,
+                voteAverage = 6.0, voteCount = 20,
+            ),
+        )
+        val decision = engine.match(parsed, candidates)
+        // 两候选标题仅近似（不完全匹配）→ 分数 < autoThreshold；即便破平局后 best 仍是 A，也需 NeedsConfirm
+        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
+        // 破平局后 A（vote_average=8.5）应排第一
+        assertThat((decision as MatchDecision.NeedsConfirm).candidates.first().candidate.tmdbId).isEqualTo(1)
+    }
+
+    // ---- P3.0 Provider ID 短路匹配（matchByIds） ----
+
+    @Test fun `matchByIds returns Auto with score 1_0 when tmdbId present and lookup hits`() = runBlocking {
+        // parsed.tmdbId 非空，lookup 返回非空候选 → MatchDecision.Auto 且 best.score == 1.0
+        // spec ADDED Requirement: Provider ID 提取 Scenario: 命中 TMDB ID
+        val parsed = ParsedFilename(title = "Some Movie", tmdbId = 123)
+        val candidate = MatchCandidate(tmdbId = 123, name = "Some Movie", year = 2024)
+        val decision = engine.matchByIds(parsed) { candidate }
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+        val auto = decision as MatchDecision.Auto
+        assertThat(auto.best.candidate.tmdbId).isEqualTo(123)
+        assertThat(auto.best.score).isEqualTo(1.0)
+    }
+
+    @Test fun `matchByIds returns null when no provider id present`() = runBlocking {
+        // parsed 无任何 Provider ID → 立即返回 null，调用方走原 match 路径
+        // spec ADDED Requirement: Provider ID 提取 Scenario: 无 ID 时回退到相似度匹配
+        val parsed = ParsedFilename(title = "Some Movie")
+        val decision = engine.matchByIds(parsed) {
+            throw AssertionError("lookup 不应被调用（parsed 无 Provider ID）")
+        }
+        assertThat(decision).isNull()
+    }
+
+    @Test fun `matchByIds returns null when lookup returns null`() = runBlocking {
+        // parsed.tmdbId 非空但 lookup 返回 null（端点 404 / 网络失败）→ 返回 null，调用方回退
+        val parsed = ParsedFilename(title = "Some Movie", tmdbId = 123)
+        val decision = engine.matchByIds(parsed) { null }
+        assertThat(decision).isNull()
+    }
+
+    @Test fun `matchByIds prefers tmdbId over tvdbId and imdbId`() = runBlocking {
+        // parsed 同时携带 tmdbId/tvdbId/imdbId 时，lookup 应优先查询 tmdbId
+        // 通过记录被调用的 ID 顺序断言：tmdbId 先被查询，命中即返回，不应触及 tvdbId/imdbId
+        val parsed = ParsedFilename(
+            title = "Some Movie",
+            tmdbId = 123,
+            tvdbId = 456,
+            imdbId = "tt0000001",
+        )
+        val callOrder = mutableListOf<String>()
+        val decision = engine.matchByIds(parsed) { p ->
+            // 模拟 lookup lambda 内部的优先级判断（与 MatchViewModel.runMatchForFile 实现一致）
+            val hit: MatchCandidate? = when {
+                p.tmdbId != null -> {
+                    callOrder += "tmdb"
+                    MatchCandidate(tmdbId = p.tmdbId, name = "Tmdb Hit", year = 2024)
+                }
+                p.tvdbId != null -> {
+                    callOrder += "tvdb"
+                    MatchCandidate(tmdbId = 999, name = "Tvdb Hit", year = 2024)
+                }
+                !p.imdbId.isNullOrBlank() -> {
+                    callOrder += "imdb"
+                    MatchCandidate(tmdbId = 998, name = "Imdb Hit", year = 2024)
+                }
+                else -> null
+            }
+            hit
+        }
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+        val auto = decision as MatchDecision.Auto
+        // 命中的是 tmdbId 对应的候选
+        assertThat(auto.best.candidate.tmdbId).isEqualTo(123)
+        assertThat(auto.best.candidate.name).isEqualTo("Tmdb Hit")
+        // lookup 仅触达 tmdb 分支，未触及 tvdb/imdb
+        assertThat(callOrder).containsExactly("tmdb").inOrder()
     }
 }
