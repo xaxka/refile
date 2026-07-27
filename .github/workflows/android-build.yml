@@ -44,7 +44,7 @@ jobs:
         run: ./gradlew :app:assembleRelease --console=plain --build-cache --parallel
 
       - name: Upload release APK artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: app-release-apk
           path: app/build/outputs/apk/release/*.apk
