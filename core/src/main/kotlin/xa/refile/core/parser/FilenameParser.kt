@@ -713,7 +713,9 @@ class FilenameParser {
         // 已知技术词数字（分辨率高度等），用于绝对集号二次过滤
         private val TECH_NUMBERS = setOf(720, 480, 540, 360, 240, 1080, 2160, 4320)
         private val DAILY_SHOW = Regex("(?<!\\d)(19|20)\\d{2}[._-](0?[1-9]|1[0-2])[._-]([0-2]?[0-9]|3[01])(?!\\d)")
-        private val YEAR = Regex("(?<!\\d)(19\\d{2}|20\\d{2})(?!\\d)")
+        // 年份：前后不能是数字；前面也不能是汉字（否则视为标题的一部分，如 `寒战1994`）。
+        // 这样 `寒战1994` 中的 1994 不被识别为独立年份，而 `Cold.War.1994` 中点分隔的 1994 仍被识别。
+        private val YEAR = Regex("(?<!\\d)(?<!\\p{script=Han})(19\\d{2}|20\\d{2})(?!\\d)")
         private val YEAR_IN_PARENS = Regex("(?i)(19\\d{2}|20\\d{2})")
         // B9: 不能用 \b——下划线是 \w 字符，\b 不会在 _ 与字母/数字间匹配，
         // 导致下划线分隔文件名（The_Last_of_Us_S01E02_1080p_WEB-DL_x264）的 _1080p/_WEB-DL/_x264
