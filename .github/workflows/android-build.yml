@@ -28,9 +28,6 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Generate Gradle wrapper jar
-        run: gradle wrapper --gradle-version 8.9 --distribution-type bin
-
       - name: Run :core JVM tests
         run: ./gradlew :core:test --console=plain
 
