@@ -433,8 +433,11 @@ class FilenameParserTest {
     @Test fun `chinese english mixed title with h265 dts tech tail cleans correctly`() {
         // `寒战1994` 中 1994 紧跟汉字，视为标题一部分不剥离；`Cold.War.1994` 中点分隔的 1994
         // 仍识别为年份并被剥离；year 取最后一个有效年份 2026。
+        // 中英混合标题按 CJK/Latin 边界拆分：title="寒战1994"，aliases=["Cold War"]，
+        // 匹配器分别搜两段再合并候选。
         val r = parser.parse("寒战1994.Cold.War.1994.2026.2160p.HQ.WEB-DL.H265.HDR.DTS-QuickIO.mkv")
-        assertThat(r.title).isEqualTo("寒战1994 Cold War")
+        assertThat(r.title).isEqualTo("寒战1994")
+        assertThat(r.titleAliases).containsExactly("Cold War")
         assertThat(r.year).isEqualTo(2026)
         assertThat(r.mediaType).isEqualTo(MediaType.MOVIE)
     }

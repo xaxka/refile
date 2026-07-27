@@ -276,10 +276,18 @@ class MatchViewModel @Inject constructor(
         }
 
         val title = parsed.title?.takeIf { it.isNotBlank() } ?: ""
-        val searchResults = if (type == MatchType.TV) {
-            tmdbCache.searchTv(title, parsed.year, language)
-        } else {
-            tmdbCache.searchMovie(title, parsed.year, language)
+        // P2.6：主标题 + 别名分别搜 TMDB，合并去重候选（中英混合文件名 `寒战1994 Cold War` 场景）。
+        val searchTitles = listOf(title) + parsed.titleAliases.filter { it.isNotBlank() }
+        val seenIds = mutableSetOf<Int>()
+        val searchResults = buildList {
+            searchTitles.forEach { q ->
+                val rs = if (type == MatchType.TV) {
+                    tmdbCache.searchTv(q, parsed.year, language)
+                } else {
+                    tmdbCache.searchMovie(q, parsed.year, language)
+                }
+                rs.forEach { if (it.id != null && seenIds.add(it.id)) add(it) }
+            }
         }
         val candidates = searchResults.map { it.toMatchCandidate() }
         val decision = engine.match(parsed, candidates)
