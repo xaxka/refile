@@ -100,3 +100,4 @@ fabric.properties
 *.tmp
 *.swp
 *~
+.workbuddy

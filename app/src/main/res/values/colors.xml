@@ -4,4 +4,6 @@
     <color name="surface_white">#FFFFFFFF</color>
     <color name="surface_variant_light">#E1E8F0</color>
     <color name="accent_amber">#0B6CB8</color>
+    <!-- Adaptive launcher icon background (average color of app icon art). -->
+    <color name="ic_launcher_background">#DAE4F2</color>
 </resources>
