@@ -176,7 +176,7 @@ fun TmdbConfigScreen(
 
             HorizontalDivider()
 
-            // 反代地址：绕过 DNS 污染。空串直连官方，填写后 API 与图片请求都走该反代。
+            // 反代地址：绕过 DNS 污染。空串直连官方，填写后所有 TMDB 请求都走该反代。
             Text(
                 text = "反代地址",
                 style = MaterialTheme.typography.labelLarge,
@@ -184,7 +184,7 @@ fun TmdbConfigScreen(
             OutlinedTextField(
                 value = proxyUrlInput,
                 onValueChange = { proxyUrlInput = it },
-                label = { Text("如 https://your-worker.workers.dev/") },
+                label = { Text("Cloudflare Workers 地址") },
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
@@ -192,9 +192,10 @@ fun TmdbConfigScreen(
             )
             Text(
                 text = "留空则直连官方 api.themoviedb.org / image.tmdb.org。" +
-                    "仅支持 Cloudflare Workers Proxy（https://github.com/ymyuuu/Cloudflare-Workers-Proxy），" +
-                    "只需填部署后的 Workers 地址，结尾有无 / 都会自动拼接；" +
-                    "填好后 API 与图片请求都会经此代理，绕过国内 DNS 污染。",
+                    "建议使用 Cloudflare Workers Proxy 部署反代：" +
+                    "https://github.com/ymyuuu/Cloudflare-Workers-Proxy 。" +
+                    "示例：https://your-worker.workers.dev/ ，" +
+                    "结尾有无 / 都会自动拼接；填好后所有 TMDB 的 API 与图片请求都会经此代理，绕过国内 DNS 污染。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
