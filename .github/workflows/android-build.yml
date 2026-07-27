@@ -35,7 +35,7 @@ jobs:
         with:
           # main 分支可写缓存供其它分支/PR 复用；非 main 分支只读，避免缓存污染
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
-          cache-cleanup: true
+          cache-cleanup: on-success
 
       - name: Run :core JVM tests
         run: ./gradlew :core:test --console=plain --build-cache --parallel
