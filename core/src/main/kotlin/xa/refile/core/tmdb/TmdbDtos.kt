@@ -317,3 +317,18 @@ data class ContentRating(
 data class EpisodeGroupsResponse(
     val results: List<EpisodeGroup> = emptyList(),
 )
+
+/**
+ * TMDB `/find/{external_id}` 响应（P2.4 ID 优先级查找）。
+ *
+ * `external_source` 决定 `external_id` 的语义（imdb_id / tvdb_id / facebook_id / ...）。
+ * 本项目仅用 imdb_id：文件名中解析到的 `tt\d{7,8}` 直接走该端点精确查找，
+ * 绕过标题相似度打分。响应按 mediaType 分桶，调用方按需取首个非空桶。
+ */
+@Serializable
+data class FindResponse(
+    @SerialName("movie_results") val movieResults: List<MovieResult> = emptyList(),
+    @SerialName("tv_results") val tvResults: List<TvResult> = emptyList(),
+    @SerialName("tv_episode_results") val tvEpisodeResults: List<Episode> = emptyList(),
+    @SerialName("tv_season_results") val tvSeasonResults: List<SeasonDetail> = emptyList(),
+)
