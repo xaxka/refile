@@ -23,6 +23,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import javax.inject.Inject
 
 /**
@@ -325,18 +328,16 @@ class MatchViewModel @Inject constructor(
 
         val title = parsed.title?.takeIf { it.isNotBlank() } ?: ""
         // P2.6：主标题 + 别名分别搜 TMDB，合并去重候选（中英混合文件名 `寒战1994 Cold War` 场景）。
+        // 多个关键词并发搜索（受共享限流器 + 请求合并约束），单文件匹配延迟从 Σ(latency) 降为 max(latency)。
         val searchTitles = listOf(title) + parsed.titleAliases.filter { it.isNotBlank() }
-        val seenIds = mutableSetOf<Int?>()
-        val searchResults = buildList {
-            searchTitles.forEach { q ->
-                val rs = if (type == MatchType.TV) {
-                    tmdbCache.searchTv(q, parsed.year, language)
-                } else {
-                    tmdbCache.searchMovie(q, parsed.year, language)
+        val searchResults = coroutineScope {
+            searchTitles.map { q ->
+                async {
+                    if (type == MatchType.TV) tmdbCache.searchTv(q, parsed.year, language)
+                    else tmdbCache.searchMovie(q, parsed.year, language)
                 }
-                rs.forEach { if (seenIds.add(it.id)) add(it) }
-            }
-        }
+            }.awaitAll()
+        }.flatMap { it }.distinctBy { it.id }
         val candidates = searchResults.map { it.toMatchCandidate() }
         val decision = engine.match(parsed, candidates)
         // P2.2：SxE 互校 — NeedsConfirm 时若 parsed 有 SxE，预拉季详情验证后重打分

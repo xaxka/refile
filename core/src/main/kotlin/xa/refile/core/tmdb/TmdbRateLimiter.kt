@@ -7,7 +7,11 @@ import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.TimeUnit
 
 /**
- * TMDB 限流与重试拦截器（计划 §5.4 / Task 2.2.3，红线：尊重 40 req/10s + 429 退避）。
+ * TMDB 限流与重试拦截器（计划 §5.4 / Task 2.2.3，红线：尊重官方限速 + 429 退避）。
+ *
+ * 官方限速（developer.themoviedb.org/docs/rate-limiting，管理员确认）：约 50 req/s、每 IP 20 个并发连接；
+ * 旧的「40 req / 10s」已于 2019 年取消。此处取 40 req/s 留安全余量，触发 429 时由 [TmdbRetryInterceptor]
+ * 读 Retry-After 退避重试（自愈）。限速上限远低于官方不会拖慢，只是防止突发打满被限流。
  */
 
 /**
@@ -78,8 +82,9 @@ class TmdbRateLimitInterceptor(
     internal fun recordedCount(): Int = timestamps.size
 
     companion object {
+        // 40 req/s（≈ 官方 50 req/s 上限留余量）。窗口 1s，故单位时间配额即 maxRequests。
         const val DEFAULT_MAX_REQUESTS = 40
-        const val DEFAULT_WINDOW_MILLIS = 10_000L
+        const val DEFAULT_WINDOW_MILLIS = 1_000L
     }
 }
 
