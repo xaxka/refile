@@ -192,8 +192,9 @@ fun TmdbConfigScreen(
             )
             Text(
                 text = "留空则直连官方 api.themoviedb.org / image.tmdb.org。" +
-                    "可基于 Cloudflare Workers Proxy 部署反代（https://github.com/ymyuuu/Cloudflare-Workers-Proxy），" +
-                    "只需填 Workers 根地址，API 与图片请求会自动经它代理，用于绕过国内 DNS 污染。",
+                    "仅支持 Cloudflare Workers Proxy（https://github.com/ymyuuu/Cloudflare-Workers-Proxy），" +
+                    "只需填部署后的 Workers 地址，结尾有无 / 都会自动拼接；" +
+                    "填好后 API 与图片请求都会经此代理，绕过国内 DNS 污染。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
