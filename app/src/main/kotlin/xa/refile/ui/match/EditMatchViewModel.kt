@@ -405,7 +405,7 @@ class EditMatchViewModel @Inject constructor(
 
     /**
      * 校验 API Key 是否已配置；空 key 写错误并返回 null，调用方据此提前返回。
-     * 实际 [TmdbClient] 由 [TmdbCacheRepository] 内部按 apiKey/hostsConfig/baseUrl 构造。
+     * 实际 [TmdbClient] 由 [TmdbCacheRepository] 内部按 apiKey/baseUrl 构造。
      */
     private suspend fun checkApiKeyOrError(): Boolean? {
         val apiKey = settings.apiKey.first()

@@ -32,9 +32,8 @@ import java.util.TimeZone
  * 不读取/下载文件内容（红线）。
  *
  * dav4jvm 的请求是同步阻塞的，这里用 [withContext]`[Dispatchers.IO]` 包裹协程化。
- * OkHttpClient 通过构造函数注入（便于注入指向 MockWebServer 的 client，或带 HostsDns 的
- * client）；其 DNS/超时等配置会被保留，仅追加 followRedirects=false（dav4jvm 要求）
- * 与认证处理器。
+ * OkHttpClient 通过构造函数注入（便于注入指向 MockWebServer 的 client）；其 DNS/超时
+ * 等配置会被保留，仅追加 followRedirects=false（dav4jvm 要求）与认证处理器。
  *
  * 密码仅用于构造 [BasicDigestAuthHandler]，不落盘、不进入日志。
  *

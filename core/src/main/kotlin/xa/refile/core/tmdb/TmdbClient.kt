@@ -158,7 +158,7 @@ class TmdbClient internal constructor(
          * 构建 [TmdbClient]：组装 Retrofit，挂上 kotlinx-serialization converter
          * （`ignoreUnknownKeys=true; coerceInputValues=true`）与限流 + 重试 + API key 拦截器。
          *
-         * 若调用方需要自定义 [OkHttpClient]（如加 Hosts/日志拦截器），可自行构建并传入；
+         * 若调用方需要自定义 [OkHttpClient]（如加日志拦截器），可自行构建并传入；
          * 本方法会以 newBuilder() 在其基础上追加 TMDB 专属拦截器。
          */
         fun create(

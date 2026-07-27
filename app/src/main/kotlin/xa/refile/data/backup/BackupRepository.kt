@@ -27,9 +27,9 @@ import javax.inject.Singleton
  * 备份与恢复仓库（计划 §M5 SubTask 5.2.1–5.2.3）。
  *
  * 职责：
- * - [export]：收集服务器/设置/模板/Hosts 构造 [BackupFile]；口令非空时整体 AES-GCM 加密。
+ * - [export]：收集服务器/设置/模板构造 [BackupFile]；口令非空时整体 AES-GCM 加密。
  * - [import]：解析 + schema 校验 + 版本兼容性校验 + 解密（若加密），返回 [ImportResult.Preview]。
- * - [applyImport]：全量校验通过后落库（servers 全量替换、settings/templates/hosts 覆盖）。
+ * - [applyImport]：全量校验通过后落库（servers 全量替换、settings/templates 覆盖）。
  *
  * 红线：历史与缓存不纳入备份；服务器密码默认置空，仅口令加密时才包含解密后的明文并整体加密。
  *
@@ -83,7 +83,6 @@ class BackupRepository @Inject constructor(
                 appVersion = APP_VERSION,
                 settings = payload.settings,
                 servers = payload.servers,
-                hosts = payload.hosts,
             )
         }
         BackupResult.Success(json.encodeToString(BackupFile.serializer(), file))
@@ -132,10 +131,9 @@ class BackupRepository @Inject constructor(
                 return ImportResult.Failure("备份内容损坏：${e.message ?: "无法解析"}")
             }
         } else {
-            // schema 校验：明文备份必须含 settings 与 hosts
+            // schema 校验：明文备份必须含 settings
             val s = file.settings ?: return ImportResult.Failure("备份缺少 settings 字段")
-            val h = file.hosts ?: return ImportResult.Failure("备份缺少 hosts 字段")
-            BackupPayload(s, file.servers, h)
+            BackupPayload(s, file.servers)
         }
 
         return ImportResult.Preview(payload, buildChanges(payload))
@@ -144,7 +142,7 @@ class BackupRepository @Inject constructor(
     /**
      * 应用已预览的导入载荷：全量覆盖落库。
      *
-     * 简化策略：servers 清空再插入（按 name 全量替换），settings/templates/hosts 直接覆盖。
+     * 简化策略：servers 清空再插入（按 name 全量替换），settings/templates 直接覆盖。
      * 落库前数据已在 [import] 阶段完成校验；此处的写操作为简单 CRUD，失败返回 [ApplyResult.Failure]。
      */
     suspend fun applyImport(payload: BackupPayload): ApplyResult = try {
@@ -182,9 +180,6 @@ class BackupRepository @Inject constructor(
             settings.setVisualOptions(visualOptions.toVisualOptions())
         }
 
-        // 3) hosts 覆盖
-        settings.setHostsConfig(payload.hosts)
-
         ApplyResult.Success
     } catch (e: Exception) {
         ApplyResult.Failure("落库失败：${e.message ?: e.javaClass.simpleName}")
@@ -199,7 +194,6 @@ class BackupRepository @Inject constructor(
         val movieTemplate = settings.movieTemplateString.first()
         val episodeTemplate = settings.episodeTemplateString.first()
         val visualOptions = settings.visualOptions.first()
-        val hostsConfig = settings.hostsConfig.first()
 
         val settingsSnapshot = SettingsSnapshot(
             apiKey = apiKey,
@@ -210,7 +204,7 @@ class BackupRepository @Inject constructor(
             visualOptions = visualOptions.toSnapshot(),
         )
         val serverSnapshots = servers.map { it.toSnapshot(withPasswords) }
-        return BackupPayload(settingsSnapshot, serverSnapshots, hostsConfig)
+        return BackupPayload(settingsSnapshot, serverSnapshots)
     }
 
     /** 服务器实体 → 快照。[withPasswords]=true 时填入解密后的明文密码，否则置空串。 */
@@ -251,15 +245,11 @@ class BackupRepository @Inject constructor(
         )
         val settingsChanged = curSettings != payload.settings
 
-        val curHosts = settings.hostsConfig.first()
-        val hostsChanged = curHosts != payload.hosts
-
         return ImportChanges(
             newServers = newServers,
             overwrittenServers = overwrittenServers,
             removedServers = removedServers,
             settingsChanged = settingsChanged,
-            hostsChanged = hostsChanged,
         )
     }
 

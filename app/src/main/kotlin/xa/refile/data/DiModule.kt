@@ -4,15 +4,12 @@ import android.content.Context
 import androidx.room.Room
 import androidx.work.WorkManager
 import xa.refile.BuildConfig
-import xa.refile.core.backup.HostsIpResolver
-import xa.refile.core.backup.HostsSpeedTest
 import xa.refile.core.naming.PresetRepository
 import xa.refile.data.crypto.KeystoreCrypto
 import xa.refile.data.db.AppDatabase
 import xa.refile.data.db.RenameBatchDao
 import xa.refile.data.db.ServerConfigDao
 import xa.refile.data.db.TmdbCacheDao
-import xa.refile.data.prefs.SettingsRepository
 import xa.refile.data.repository.ServerRepository
 import dagger.Module
 import dagger.Provides
@@ -76,27 +73,7 @@ object RepositoryModule {
     fun provideServerRepository(
         dao: ServerConfigDao,
         crypto: KeystoreCrypto,
-        settings: SettingsRepository,
-    ): ServerRepository = ServerRepository(dao, crypto, settings)
-}
-
-@Module
-@InstallIn(SingletonComponent::class)
-object HostsModule {
-
-    /**
-     * Hosts 自动测速（Task 5.3.3）。无状态工具类，单例即可；内部 OkHttpClient 也单例复用。
-     */
-    @Provides
-    @Singleton
-    fun provideHostsSpeedTest(): HostsSpeedTest = HostsSpeedTest()
-
-    /**
-     * Hosts DoH IP 解析器（测试反馈 Item 13）。无状态工具类，单例即可。
-     */
-    @Provides
-    @Singleton
-    fun provideHostsIpResolver(): HostsIpResolver = HostsIpResolver()
+    ): ServerRepository = ServerRepository(dao, crypto)
 }
 
 @Module

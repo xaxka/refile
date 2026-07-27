@@ -184,15 +184,16 @@ fun TmdbConfigScreen(
             OutlinedTextField(
                 value = baseUrlInput,
                 onValueChange = { baseUrlInput = it },
-                label = { Text("如 https://your-proxy.example.com/3/") },
+                label = { Text("如 https://your-worker.workers.dev/https://api.themoviedb.org/3/") },
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
             )
             Text(
-                text = "留空使用官方 api.themoviedb.org（经 Hosts 解析）。" +
-                    "自建反代需以 /3/ 结尾，用于绕过国内 DNS 污染。",
+                text = "留空使用官方 api.themoviedb.org。" +
+                    "可基于 Cloudflare Workers Proxy 部署反代（https://github.com/ymyuuu/Cloudflare-Workers-Proxy），" +
+                    "把 Workers URL 拼上 https://api.themoviedb.org/3/ 作为反代地址，用于绕过国内 DNS 污染。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

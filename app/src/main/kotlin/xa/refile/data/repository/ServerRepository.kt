@@ -1,14 +1,11 @@
 package xa.refile.data.repository
 
-import xa.refile.core.backup.HostsDnsFactory
 import xa.refile.core.webdav.ConnectionResult
 import xa.refile.core.webdav.WebDavClient
 import xa.refile.data.crypto.KeystoreCrypto
 import xa.refile.data.db.ServerConfigDao
 import xa.refile.data.db.ServerConfigEntity
-import xa.refile.data.prefs.SettingsRepository
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import okhttp3.OkHttpClient
 import javax.inject.Inject
 
@@ -26,13 +23,11 @@ import javax.inject.Inject
 class ServerRepository @Inject constructor(
     private val dao: ServerConfigDao,
     private val crypto: KeystoreCrypto,
-    private val settings: SettingsRepository,
 ) {
 
     /**
      * 共享 OkHttpClient：所有 [clientFor] 构造的 client 复用同一连接池/线程池，
-     * 避免 hostsConfig 变化时频繁新建 client 造成资源泄漏。
-     * hostsConfig 仍通过 [HostsDnsFactory] 挂载（newBuilder 复用底层连接池）。
+     * 避免频繁新建 client 造成资源泄漏。
      */
     private val sharedClient by lazy { OkHttpClient() }
 
@@ -97,8 +92,8 @@ class ServerRepository @Inject constructor(
     /**
      * 测试与目标服务器的连通性。
      *
-     * B14: 改为复用 [clientFor] 构造 client，与实际重命名走同一套 [HostsDnsFactory]，
-     * 消除"配 hosts 后连接测试失败但实际操作成功"的不一致。统一传 "/" 由
+     * B14: 改为复用 [clientFor] 构造 client，与实际重命名走同一套 client 构造逻辑，
+     * 消除"连接测试失败但实际操作成功"的不一致。统一传 "/" 由
      * [WebDavClient] 补末尾斜杠。仅做连通性/认证探测，不下载文件内容。
      */
     suspend fun testConnection(entity: ServerConfigEntity): ConnectionResult {
@@ -113,19 +108,12 @@ class ServerRepository @Inject constructor(
      * 与 [testConnection] 共用同一套 baseUrl 构造逻辑，避免在调用方（预览页 ViewModel）
      * 重复实现。
      *
-     * Hosts：读取 [SettingsRepository.hostsConfig]，通过 [HostsDnsFactory] 把 hosts
-     * 解析挂到 OkHttpClient（开关关闭或 hostname 未命中时回退系统 DNS）。
-     *
      * 仅用于预览阶段的 PROPFIND 探测（冲突检测、伴随文件发现），不在此执行 MOVE/MKCOL。
      */
     suspend fun clientFor(entity: ServerConfigEntity): WebDavClient {
         val decryptedPassword = entity.encryptedPassword?.let { crypto.decrypt(it) }
         val fullBaseUrl = buildFullBaseUrl(entity)
-        // 读 effectiveHostsConfig（合并运行时临时禁用状态），而非原始 hostsConfig：
-        // 程序启动自动检测到可直连 TMDB 时会临时禁用 hosts，此处需尊重该结果。
-        val hostsConfig = settings.effectiveHostsConfig.first()
-        val client = HostsDnsFactory.createOkHttpClientWithHosts(hostsConfig, base = sharedClient)
-        return WebDavClient(fullBaseUrl, entity.username, decryptedPassword, client)
+        return WebDavClient(fullBaseUrl, entity.username, decryptedPassword, sharedClient)
     }
 
     /**

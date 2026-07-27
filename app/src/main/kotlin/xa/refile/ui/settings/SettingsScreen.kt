@@ -21,7 +21,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material3.Card
@@ -54,7 +53,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
  * - 组 1 TMDB 配置：入口项，跳转 [TmdbConfigScreen]。
  * - 组 2 命名与模板：模板编辑器入口。
  * - 组 3 数据管理：备份与恢复。
- * - 组 4 网络：Hosts 设置。
  *
  * 列表项统一用 [SettingsRow]（图标 + 标题 + 副标题 + 右箭头 + 点击）。
  * 子页跳转通过 [SettingsViewModel.events] 一次性事件驱动。
@@ -64,7 +62,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
  * @param onOpenTmdbConfig 跳转 TMDB 配置子页。
  * @param onOpenTemplateEditor 跳转模板编辑器。
  * @param onOpenBackup 跳转备份与恢复。
- * @param onOpenHostsSettings 跳转 Hosts 设置。
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -73,7 +70,6 @@ fun SettingsScreen(
     onOpenTmdbConfig: () -> Unit,
     onOpenTemplateEditor: () -> Unit,
     onOpenBackup: () -> Unit,
-    onOpenHostsSettings: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val versionName by viewModel.versionName.collectAsStateWithLifecycle()
@@ -91,7 +87,6 @@ fun SettingsScreen(
             when (event) {
                 SettingsNavEvent.OpenTemplateEditor -> onOpenTemplateEditor()
                 SettingsNavEvent.OpenBackup -> onOpenBackup()
-                SettingsNavEvent.OpenHostsSettings -> onOpenHostsSettings()
                 SettingsNavEvent.PickLogFile ->
                     logLauncher.launch("refile-error-${System.currentTimeMillis()}.log")
             }
@@ -161,19 +156,7 @@ fun SettingsScreen(
                 }
             }
 
-            // ---------- 组 4：网络 ----------
-            item {
-                SettingsSection(title = "网络") {
-                    SettingsRow(
-                        icon = Icons.Default.Dns,
-                        title = "Hosts 设置",
-                        subtitle = "自定义 DNS 与直连",
-                        onClick = viewModel::openHostsSettings,
-                    )
-                }
-            }
-
-            // ---------- 组 5：关于 ----------
+            // ---------- 组 4：关于 ----------
             item {
                 SettingsSection(title = "关于") {
                     Row(

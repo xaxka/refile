@@ -61,8 +61,8 @@ class SettingsViewModel @Inject constructor(
     /**
      * TMDB API 反代 baseUrl（自定义反代地址）。
      *
-     * 空串表示用官方默认 `https://api.themoviedb.org/3/`（经 hosts 解析）。
-     * 用户填自建反代地址（如 Vercel/NAS 反代）绕过 DNS 污染，格式需以 `/3/` 结尾。
+     * 空串表示用官方默认 `https://api.themoviedb.org/3/`。
+     * 用户填自建反代地址（如 Cloudflare Workers Proxy）绕过 DNS 污染，格式需以 `/3/` 结尾。
      */
     val tmdbBaseUrl: StateFlow<String> = settings.tmdbBaseUrl
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), "")
@@ -149,11 +149,6 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { _events.emit(SettingsNavEvent.OpenBackup) }
     }
 
-    /** 触发跳转 Hosts 设置事件。 */
-    fun openHostsSettings() {
-        viewModelScope.launch { _events.emit(SettingsNavEvent.OpenHostsSettings) }
-    }
-
     /** 请求启动 SAF CreateDocument 选择调试日志保存位置（关于分组）。 */
     fun pickLogFile() {
         viewModelScope.launch { _events.emit(SettingsNavEvent.PickLogFile) }
@@ -219,9 +214,6 @@ sealed interface SettingsNavEvent {
 
     /** 跳转备份与恢复。 */
     object OpenBackup : SettingsNavEvent
-
-    /** 跳转 Hosts 设置。 */
-    object OpenHostsSettings : SettingsNavEvent
 
     /** 触发 SAF CreateDocument 选择调试日志保存位置。 */
     object PickLogFile : SettingsNavEvent

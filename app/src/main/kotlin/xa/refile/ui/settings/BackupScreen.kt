@@ -151,7 +151,7 @@ fun BackupScreen(
                         Text("导出备份", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     }
                     Text(
-                        "将服务器、设置、模板与 Hosts 导出为 JSON。历史与缓存不纳入备份。",
+                        "将服务器、设置与模板导出为 JSON。历史与缓存不纳入备份。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -274,7 +274,6 @@ private fun ImportPreviewCard(
             PreviewLine("覆盖服务器", changes.overwrittenServers)
             PreviewLine("删除服务器", changes.removedServers)
             PreviewLine("设置", if (changes.settingsChanged) "将变更" else "无变化")
-            PreviewLine("Hosts", if (changes.hostsChanged) "将变更" else "无变化")
             Spacer(Modifier.height(4.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),

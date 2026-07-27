@@ -1,6 +1,5 @@
 package xa.refile.data.repository
 
-import xa.refile.core.backup.HostsDnsFactory
 import xa.refile.core.model.MediaType
 import xa.refile.core.naming.MediaMetadata
 import xa.refile.core.tmdb.EpisodeGroupDetail
@@ -31,10 +30,10 @@ import javax.inject.Singleton
  * 会话缓存键：`"{MOVIE|TV}:{query}:{year|null}:{language}"`，仅存活于本仓库实例生命周期，
  * 由 [clearSessionCache] 清空（重新匹配/重置文件时调用）。
  *
- * DI：[TmdbClient] 无法作为稳定单例提供（其构造依赖 DataStore 中的 apiKey/hostsConfig，属动态
+ * DI：[TmdbClient] 无法作为稳定单例提供（其构造依赖 DataStore 中的 apiKey/baseUrl，属动态
  * 设置），故本仓库注入 [SettingsRepository] 自行按需构造 [TmdbClient]（与 MatchViewModel 原逻辑
- * 一致：读 hostsConfig → [HostsDnsFactory] → [TmdbClient.create]）。apiKey 为空时抛
- * [IllegalStateException]，由调用方捕获提示用户。
+ * 一致：读 baseUrl → [TmdbClient.create]）。apiKey 为空时抛 [IllegalStateException]，
+ * 由调用方捕获提示用户。
  */
 @Singleton
 class TmdbCacheRepository @Inject constructor(
@@ -44,7 +43,6 @@ class TmdbCacheRepository @Inject constructor(
 
     /**
      * 共享 OkHttpClient：所有 TMDB 请求复用同一连接池/线程池，避免每次请求新建 client 造成资源泄漏。
-     * hostsConfig 仍按需通过 [HostsDnsFactory] 挂载（newBuilder 复用底层连接池）。
      */
     private val sharedClient by lazy { OkHttpClient() }
 
@@ -296,18 +294,14 @@ class TmdbCacheRepository @Inject constructor(
 
     // ---- 内部：TmdbClient 构造（与 MatchViewModel 原逻辑一致） ----
 
-    /** 读 apiKey + effectiveHostsConfig 构造 [TmdbClient]；apiKey 为空抛 [IllegalStateException]。 */
+    /** 读 apiKey + baseUrl 构造 [TmdbClient]；apiKey 为空抛 [IllegalStateException]。 */
     private suspend fun buildTmdbClient(): TmdbClient {
         val apiKey = settings.apiKey.first()
         if (apiKey.isBlank()) throw IllegalStateException("请先在设置中填入 TMDB API Key")
-        // 读 effectiveHostsConfig（合并运行时临时禁用状态），而非原始 hostsConfig：
-        // 程序启动自动检测到可直连 TMDB 时会临时禁用 hosts，此处需尊重该结果。
-        val hostsConfig = settings.effectiveHostsConfig.first()
-        val baseClient = HostsDnsFactory.createOkHttpClientWithHosts(hostsConfig, base = sharedClient)
         // 自定义反代地址优先：用户填了 tmdbBaseUrl 时用反代（绕过 DNS 污染），否则用官方默认。
         val baseUrl = settings.tmdbBaseUrl.first().takeIf { it.isNotBlank() }
             ?: TmdbClient.DEFAULT_BASE_URL
-        return TmdbClient.create(baseClient, apiKey, baseUrl)
+        return TmdbClient.create(sharedClient, apiKey, baseUrl)
     }
 
     // ---- 内部：缓存键 ----
