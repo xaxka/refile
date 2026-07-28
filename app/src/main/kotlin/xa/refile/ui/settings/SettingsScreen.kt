@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -33,6 +34,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -74,6 +76,7 @@ fun SettingsScreen(
 ) {
     val versionName by viewModel.versionName.collectAsStateWithLifecycle()
     val logExportResult by viewModel.logExportResult.collectAsStateWithLifecycle()
+    val openSourceNotices by viewModel.openSourceNotices.collectAsStateWithLifecycle()
 
     val logLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/plain"),
@@ -197,11 +200,38 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            Spacer(Modifier.height(4.dp))
+                            // 开源许可：点击查看随 APK 分发的 NOTICE.txt（含 dav4jvm MPL-2.0 披露）。
+                            Text(
+                                text = "开源许可（含 dav4jvm — MPL-2.0）",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.clickable { viewModel.loadOpenSourceNotices() },
+                            )
                         }
                     }
                 }
             }
         }
+    }
+
+    // 开源许可公告对话框：展示随 APK 分发的 NOTICE 全文（MPL-2.0 §3.3 披露要求）。
+    openSourceNotices?.let { notice ->
+        AlertDialog(
+            onDismissRequest = viewModel::clearOpenSourceNotices,
+            confirmButton = {
+                TextButton(onClick = viewModel::clearOpenSourceNotices) {
+                    Text("关闭")
+                }
+            },
+            title = { Text("开源许可") },
+            text = {
+                Text(
+                    text = notice,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            },
+        )
     }
 }
 

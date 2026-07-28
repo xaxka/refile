@@ -1,12 +1,14 @@
 package xa.refile.data.prefs
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import xa.refile.core.naming.NamingOptions
 import xa.refile.core.naming.Preset
+import xa.refile.data.crypto.KeystoreCrypto
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -17,7 +19,7 @@ import javax.inject.Singleton
  * 应用级设置仓库（计划 §M2 / Task 2.4 依赖）。
  *
  * 基于 Preferences DataStore 持久化：
- * - [apiKey]：TMDB API Key（敏感，不进日志）。
+ * - [apiKey]：TMDB API Key（敏感，不进日志；经 Android Keystore 加密后落盘）。
  * - [language]：TMDB 请求语言，默认 `zh-CN`。
  * - [presetId]：命名预设，默认 `DEFAULT`。
  * - [templateString]：用户自定义模板字符串（兼容旧版，单模板）。
@@ -27,14 +29,45 @@ import javax.inject.Singleton
  *
  * 用 `@Inject constructor` + `@Singleton`，Hilt 直接构造，无需 @Provides。
  * DataStore 通过顶层 [Context.dataStore] 扩展按进程单例创建。
+ *
+ * API Key 加密策略：写入前用 [KeystoreCrypto] 加密为 `base64(iv||cipherText)`，
+ * 读取时解密。空串表示未配置，不入库加密。第一次升级到加密版本时，会读取到旧的明文
+ * Key（无法 decrypt 成功），此时把明文重新加密回写并置位 `api_key_v2` 标志，完成一次性迁移。
  */
 @Singleton
 class SettingsRepository @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val crypto: KeystoreCrypto,
 ) {
 
-    /** TMDB API Key；未设置返回空串。 */
-    val apiKey: Flow<String> = context.dataStore.data.map { it[KEY_API_KEY] ?: "" }
+    /**
+     * TMDB API Key；未设置返回空串。
+     *
+     * 读取流程：
+     * 1. 取 `api_key` 字段，空串直接返回（未配置）。
+     * 2. 已迁移标记 `api_key_v2=true`：直接 decrypt，失败回退空串（Keystore 失效场景）。
+     * 3. 未迁移（旧版明文）：尝试 decrypt；成功说明其实已是密文（中途异常），置 v2 标志；
+     *    失败视为明文 Key，加密回写并置 v2 标志，完成一次性迁移。
+     *
+     * 迁移在 Flow 内完成——仅执行一次（v2 标志之后走分支 2）。
+     */
+    val apiKey: Flow<String> = context.dataStore.data.map { prefs ->
+        val stored = prefs[KEY_API_KEY] ?: ""
+        if (stored.isEmpty()) return@map ""
+        if (prefs[KEY_API_KEY_V2] == true) {
+            runCatching { crypto.decrypt(stored) }.getOrDefault("")
+        } else {
+            // 兼容旧明文：尝试解密成功 → 已是密文（异常路径）；失败 → 当作明文重新加密回写。
+            val plain = runCatching { crypto.decrypt(stored) }.getOrNull()
+            if (plain != null) {
+                migrateApiKeyDone(stored)
+                plain
+            } else {
+                migrateApiKeyDone(crypto.encrypt(stored))
+                stored
+            }
+        }
+    }
 
     /** TMDB 请求语言，默认简体中文。 */
     val language: Flow<String> = context.dataStore.data.map { it[KEY_LANGUAGE] ?: DEFAULT_LANGUAGE }
@@ -73,8 +106,31 @@ class SettingsRepository @Inject constructor(
         )
     }
 
+    /**
+     * 保存 TMDB API Key。空串清空；非空串经 [KeystoreCrypto] 加密后写入并置 v2 标志。
+     */
     suspend fun setApiKey(value: String) {
-        context.dataStore.edit { it[KEY_API_KEY] = value }
+        context.dataStore.edit {
+            if (value.isEmpty()) {
+                it[KEY_API_KEY] = ""
+                it[KEY_API_KEY_V2] = false
+            } else {
+                it[KEY_API_KEY] = crypto.encrypt(value)
+                it[KEY_API_KEY_V2] = true
+            }
+        }
+    }
+
+    /**
+     * 一次性迁移收尾：把（已是密文或刚加密的）API Key 与 v2 标志一并落盘。
+     *
+     * 在 [apiKey] Flow 首次读取到未迁移数据时同步触发；后续 v2=true 走快路径不再调用。
+     */
+    private suspend fun migrateApiKeyDone(encryptedValue: String) {
+        context.dataStore.edit {
+            it[KEY_API_KEY] = encryptedValue
+            it[KEY_API_KEY_V2] = true
+        }
     }
 
     suspend fun setLanguage(value: String) {
@@ -116,6 +172,7 @@ class SettingsRepository @Inject constructor(
         const val DEFAULT_LANGUAGE = "zh-CN"
         val DEFAULT_PRESET = Preset.DEFAULT.name
         private val KEY_API_KEY = stringPreferencesKey("api_key")
+        private val KEY_API_KEY_V2 = booleanPreferencesKey("api_key_v2")
         private val KEY_LANGUAGE = stringPreferencesKey("language")
         private val KEY_TMDB_PROXY_URL = stringPreferencesKey("tmdb_proxy_url")
         private val KEY_PRESET_ID = stringPreferencesKey("preset_id")

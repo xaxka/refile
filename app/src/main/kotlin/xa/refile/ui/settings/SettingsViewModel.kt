@@ -99,6 +99,15 @@ class SettingsViewModel @Inject constructor(
     private val _exportingLog = MutableStateFlow(false)
     val exportingLog: StateFlow<Boolean> = _exportingLog.asStateFlow()
 
+    /**
+     * 开源许可公告文本（含 MPL-2.0 依赖 dav4jvm 的分发披露）。
+     *
+     * 为 null 时未展示；非 null 时由 Composable 弹 AlertDialog 展示，关闭后置 null。
+     * 内容取自打包进 APK 的 `assets/NOTICE.txt`，确保分发物内随附披露文本。
+     */
+    private val _openSourceNotices = MutableStateFlow<String?>(null)
+    val openSourceNotices: StateFlow<String?> = _openSourceNotices.asStateFlow()
+
     /** 保存 API Key 到 DataStore。 */
     fun setApiKey(value: String) {
         viewModelScope.launch { settings.setApiKey(value) }
@@ -180,6 +189,28 @@ class SettingsViewModel @Inject constructor(
     /** 清除调试日志导出文案。 */
     fun clearLogExportResult() {
         _logExportResult.value = null
+    }
+
+    /**
+     * 从 `assets/NOTICE.txt` 加载开源许可公告并置入 [openSourceNotices]。
+     *
+     * 该文本随 APK 分发，包含 dav4jvm（MPL-2.0）等依赖的版权与源码获取披露，
+     * 满足 MPL-2.0 §3.3「告知接收方可获得源码形式」的要求。读取失败回退占位串。
+     */
+    fun loadOpenSourceNotices() {
+        viewModelScope.launch {
+            val text = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.assets.open("NOTICE.txt").use { it.bufferedReader(Charsets.UTF_8).readText() }
+                }.getOrDefault("无法读取 NOTICE.txt")
+            }
+            _openSourceNotices.value = text
+        }
+    }
+
+    /** 关闭开源许可公告对话框。 */
+    fun clearOpenSourceNotices() {
+        _openSourceNotices.value = null
     }
 
     /** 抓取错误级 logcat（dump 一次，不限进程）。 */

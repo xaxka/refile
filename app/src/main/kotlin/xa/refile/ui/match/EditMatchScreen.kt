@@ -435,7 +435,7 @@ private fun CandidatePosterCard(candidate: MediaCandidate, onClick: () -> Unit) 
  * 季选择器：下拉列表展示可用季（1..[numberOfSeasons]）+「全部季」选项。
  *
  * 用户要求：先查询剧集总季数再让用户选择，避免猜错季号触发 404。
- * [season] 为 null 表示「全部季」——保存时由 ViewModel 遍历所有季查找匹配集号。
+ * [season] 为 null 表示「全部季」——合并加载所有季集列表，保存时由 ViewModel 遍历查找匹配季。
  * [numberOfSeasons] 为 null（TV 详情未加载）时仅展示「全部季」选项，避免展示错误范围。
  */
 @OptIn(ExperimentalMaterial3Api::class)
