@@ -44,7 +44,7 @@ class TemplateEngine(
      */
     fun render(template: String): RenderResult {
         val segmentWarnings = mutableListOf<String>()
-        // 按目录层级切分（但不在 {} 内部切分，保护 {?...}{/?} 条件块标记和 dateFormat(dd/MM/yyyy) 等参数）
+        // 按目录层级切分（但不在 {} 内部切分，保护 {?...}{/?} 条件块标记和 format(dd/MM/yyyy) 等参数）
         val segments = splitByPathSeparator(template)
         val renderedSegments = segments.map { seg -> renderSegment(seg, segmentWarnings) }
         // 过滤空段（缺失变量导致的整段空）；清理每段首尾的多余分隔符
@@ -275,7 +275,7 @@ class TemplateEngine(
      *
      * 保护场景：
      * - 条件块标记 `{/?}`、`{:}` 内部的 `/` 不被切分
-     * - 修饰符参数如 `dateFormat(dd/MM/yyyy)` 内部的 `/` 不被切分
+     * - 修饰符参数如 `format(dd/MM/yyyy)` 内部的 `/` 不被切分
      *
      * 跟踪 `{}` 深度：仅在 `braceDepth == 0` 时把 `/` 当作路径分隔符。
      */

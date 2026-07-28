@@ -153,7 +153,7 @@ fun TemplateEditorScreen(
                 onValueChange = viewModel::updateTemplate,
                 label = { Text("${activeTab.label}字符串") },
                 supportingText = {
-                    Text("变量用 {n} {y} {s00e00} 等，管道 {n|upper}，路径用 / 分段")
+                    Text("变量用 {n} {y} {s00e00} 等（对齐 FileBot），管道 {n|upper} 或链式 {n.upper()}，路径用 / 分段，日期 {d|format('yyyy.MM.dd')}")
                 },
                 textStyle = MaterialTheme.typography.bodyLarge.copy(
                     fontFamily = FontFamily.Monospace,

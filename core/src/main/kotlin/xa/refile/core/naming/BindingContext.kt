@@ -93,6 +93,7 @@ data class BatchContext(
     val duplicateIndex: Int? = null,  // di
     val duplicateCount: Int? = null,  // dc
     val filesCount: Int = 0,          // files
+    val index: Int? = null,           // i（批次内序号，从 0 开始，对齐 FileBot model index）
     val today: String = "",           // ISO yyyy-MM-dd
 )
 

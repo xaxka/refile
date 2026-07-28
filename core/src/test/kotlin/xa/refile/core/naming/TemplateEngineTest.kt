@@ -3,6 +3,7 @@ package xa.refile.core.naming
 import com.google.common.truth.Truth.assertThat
 import xa.refile.core.model.MediaType
 import xa.refile.core.parser.ParsedFilename
+import xa.refile.core.parser.SubtitleInfo
 import org.junit.Test
 
 class TemplateEngineTest {
@@ -435,9 +436,10 @@ class TemplateEngineTest {
     }
 
     @Test fun `dot chain upperInitial then space dot`() {
+        // FileBot 语义：逐词首字母大写
         val r = engine(media = MediaMetadata(name = "the matrix"))
             .render("{n.upperInitial().space('.')}")
-        assertThat(r.path).isEqualTo("The.matrix")
+        assertThat(r.path).isEqualTo("The.Matrix")
     }
 
     @Test fun `pipe clean still works for compatibility`() {
@@ -485,9 +487,11 @@ class TemplateEngineTest {
         assertThat(r.path).isEqualTo("Show")
     }
 
-    @Test fun `tail takes last n chars`() {
-        val r = engine(media = MediaMetadata(name = "Inception")).render("{n.tail(3)}")
-        assertThat(r.path).isEqualTo("ion")
+    @Test fun `replacePart converts trailing part number`() {
+        // FileBot："Today Is the Day (1)" → "Today Is the Day, Part 1"
+        val r = engine(media = MediaMetadata(name = "Today Is the Day (1)"))
+            .render("{n.replacePart()}")
+        assertThat(r.path).isEqualTo("Today Is the Day, Part 1")
     }
 
     // ---- 参数引号 ----
@@ -503,69 +507,75 @@ class TemplateEngineTest {
         assertThat(r.path).isEqualTo("A-B")
     }
 
-    // ---- Feature #7：日期格式化修饰符 ----
+    // ---- 日期格式化修饰符（FileBot format）----
 
-    @Test fun `dateFormat default pattern yyyy-MM-dd`() {
+    @Test fun `format default pattern yyyy-MM-dd`() {
         val r = engine(media = MediaMetadata(type = MediaType.EPISODE, episodeAirDates = listOf("2023-01-15")))
-            .render("{airdate|dateFormat}")
+            .render("{airdate|format}")
         assertThat(r.path).isEqualTo("2023-01-15")
     }
 
-    @Test fun `dateFormat custom pattern dots`() {
+    @Test fun `format custom pattern dots`() {
         val r = engine(media = MediaMetadata(type = MediaType.EPISODE, episodeAirDates = listOf("2023-01-15")))
-            .render("{airdate|dateFormat(yyyy.MM.dd)}")
+            .render("{airdate|format(yyyy.MM.dd)}")
         assertThat(r.path).isEqualTo("2023.01.15")
     }
 
-    @Test fun `dateFormat custom pattern slashes`() {
+    @Test fun `format custom pattern slashes`() {
         val r = engine(media = MediaMetadata(type = MediaType.EPISODE, episodeAirDates = listOf("2023-01-15")))
-            .render("{airdate|dateFormat(dd/MM/yyyy)}")
+            .render("{airdate|format(dd/MM/yyyy)}")
         assertThat(r.path).isEqualTo("15/01/2023")
     }
 
-    @Test fun `dateFormat handles ISO datetime input`() {
+    @Test fun `format handles ISO datetime input`() {
         val r = engine(media = MediaMetadata(type = MediaType.EPISODE, episodeAirDates = listOf("2023-01-15T10:30:00Z")))
-            .render("{airdate|dateFormat(yyyy.MM.dd)}")
+            .render("{airdate|format(yyyy.MM.dd)}")
         assertThat(r.path).isEqualTo("2023.01.15")
     }
 
-    @Test fun `dateFormat invalid date returns original`() {
+    @Test fun `format invalid date returns original`() {
         // 无法解析的日期 → 原样返回（容错，不崩溃）
         val r = engine(media = MediaMetadata(type = MediaType.EPISODE, episodeAirDates = listOf("not-a-date")))
-            .render("{airdate|dateFormat(yyyy.MM.dd)}")
+            .render("{airdate|format(yyyy.MM.dd)}")
         assertThat(r.path).isEqualTo("not-a-date")
     }
 
-    @Test fun `dateFormat missing date renders empty`() {
+    @Test fun `format missing date renders empty`() {
         // 无日期数据 → 变量解析为 null → 渲染为空
         val r = engine(media = MediaMetadata(type = MediaType.EPISODE))
-            .render("{airdate|dateFormat(yyyy.MM.dd)}")
+            .render("{airdate|format(yyyy.MM.dd)}")
         assertThat(r.path).isEmpty()
     }
 
-    // ---- Feature #8：首字母分文件夹修饰符 ----
+    @Test fun `parseDate with custom pattern outputs ISO`() {
+        val r = engine(media = MediaMetadata(name = "20230115"))
+            .render("{n|parseDate('yyyyMMdd')}")
+        assertThat(r.path).isEqualTo("2023-01-15")
+    }
 
-    @Test fun `firstChar returns uppercase first letter`() {
-        val r = engine(media = MediaMetadata(name = "Avatar")).render("{n|firstChar}")
+    // ---- 排序首字母修饰符（FileBot sortInitial）----
+
+    @Test fun `sortInitial returns uppercase first letter`() {
+        val r = engine(media = MediaMetadata(name = "Avatar")).render("{n|sortInitial}")
         assertThat(r.path).isEqualTo("A")
     }
 
-    @Test fun `firstChar strips leading article`() {
+    @Test fun `sortInitial strips leading article`() {
         // The Avatar → 排序名 Avatar, The → 首字母 A
-        val r = engine(media = MediaMetadata(name = "The Avatar")).render("{n|firstChar}")
+        val r = engine(media = MediaMetadata(name = "The Avatar")).render("{n|sortInitial}")
         assertThat(r.path).isEqualTo("A")
     }
 
-    @Test fun `firstChar used as directory segment`() {
-        // 经典用法：{n|firstChar}/{n} ({y})/{n} ({y})
+    @Test fun `sortInitial used as directory segment`() {
+        // 经典用法：{n|sortInitial}/{n} ({y})/{n} ({y})
         val r = engine(media = MediaMetadata(name = "Avatar", year = 2009))
-            .render("{n|firstChar}/{n} ({y})/{n} ({y})")
+            .render("{n|sortInitial}/{n} ({y})/{n} ({y})")
         assertThat(r.path).isEqualTo("A/Avatar (2009)/Avatar (2009)")
     }
 
-    @Test fun `firstChar handles number start`() {
+    @Test fun `sortInitial handles number start`() {
         // 数字开头 → 原样返回首字符
-        val r = engine(media = MediaMetadata(name = "12 Monkeys")).render("{n|firstChar}")
+        val r = engine(media = MediaMetadata(name = "12 Monkeys")).render("{n|sortInitial}")
         assertThat(r.path).isEqualTo("1")
     }
 
@@ -660,5 +670,237 @@ class TemplateEngineTest {
         val r2 = e.render("{n|lower}")
         assertThat(r1.path).isEqualTo("AVATAR")
         assertThat(r2.path).isEqualTo("avatar")
+    }
+
+    // ---- FileBot 对齐：文件名不含扩展名 ----
+
+    @Test fun `fn strips extension`() {
+        val r = engine(file = FileContext(displayName = "Serenity.mkv", ext = "mkv")).render("{fn}")
+        assertThat(r.path).isEqualTo("Serenity")
+    }
+
+    @Test fun `original and mediaFileName strip extension`() {
+        val f = FileContext(displayName = "Inception.2010.1080p.mkv", ext = "mkv")
+        assertThat(engine(file = f).render("{original}").path).isEqualTo("Inception.2010.1080p")
+        assertThat(engine(file = f).render("{mediaFileName}").path).isEqualTo("Inception.2010.1080p")
+    }
+
+    // ---- FileBot 对齐：d 回退到电影上映日期 ----
+
+    @Test fun `d falls back to movie release date`() {
+        val r = engine(media = MediaMetadata(type = MediaType.MOVIE, releaseDate = "2010-07-16")).render("{d}")
+        assertThat(r.path).isEqualTo("2010-07-16")
+    }
+
+    // ---- FileBot 对齐：文件名解析类绑定 ----
+
+    @Test fun `edition from filename`() {
+        val r = engine(file = FileContext(parsed = ParsedFilename(edition = "Director's Cut"))).render("{edition}")
+        assertThat(r.path).isEqualTo("Director's Cut")
+    }
+
+    @Test fun `tags from edition and version`() {
+        val r = engine(file = FileContext(parsed = ParsedFilename(edition = "Director's Cut", version = "PROPER")))
+            .render("{tags}")
+        assertThat(r.path).isEqualTo("Director's Cut, PROPER")
+    }
+
+    @Test fun `s3d from filename`() {
+        val r = engine(file = FileContext(parsed = ParsedFilename(threeD = "3D SBS"))).render("{s3d}")
+        assertThat(r.path).isEqualTo("3D SBS")
+    }
+
+    @Test fun `hdr from filename`() {
+        val r = engine(file = FileContext(parsed = ParsedFilename(hdr = "HDR10"))).render("{hdr}")
+        assertThat(r.path).isEqualTo("HDR10")
+    }
+
+    @Test fun `dovi splits from hdr`() {
+        val f = FileContext(parsed = ParsedFilename(hdr = "Dolby Vision"))
+        assertThat(engine(file = f).render("{dovi}").path).isEqualTo("Dolby Vision")
+        assertThat(engine(file = f).render("{hdr}").path).isEmpty()
+    }
+
+    @Test fun `lang and subt from subtitle filename`() {
+        val f = FileContext(
+            displayName = "movie.srt",
+            ext = "srt",
+            parsed = ParsedFilename(subtitleInfo = SubtitleInfo("zh", forced = true, default = false, hearingImpaired = false)),
+        )
+        assertThat(engine(file = f).render("{lang}").path).isEqualTo("zh")
+        assertThat(engine(file = f).render("{fn}{subt}").path).isEqualTo("movie.zh.forced")
+    }
+
+    // ---- FileBot 对齐：批次与路径别名 ----
+
+    @Test fun `i model index`() {
+        val r = engine(batch = BatchContext(index = 0)).render("{i}")
+        assertThat(r.path).isEqualTo("0")
+    }
+
+    @Test fun `root aliases drive`() {
+        val r = engine(file = FileContext(drive = "library")).render("{root}")
+        assertThat(r.path).isEqualTo("library")
+    }
+
+    @Test fun `episodes aliases episodelist`() {
+        val m = MediaMetadata(type = MediaType.EPISODE, seasonNumber = 1, episodeNumbers = listOf(1, 2))
+        assertThat(engine(media = m).render("{episodes}").path).isEqualTo("[1x01, 1x02]")
+    }
+
+    // ---- FileBot 对齐：媒体服务器标准路径 ----
+
+    @Test fun `plex movie path`() {
+        val r = engine(media = MediaMetadata(type = MediaType.MOVIE, name = "Avatar", year = 2009)).render("{plex}")
+        assertThat(r.path).isEqualTo("Movies/Avatar (2009)/Avatar (2009)")
+    }
+
+    @Test fun `plex episode path`() {
+        val r = engine(media = MediaMetadata(
+            type = MediaType.EPISODE, name = "Alias", year = 2001,
+            seasonNumber = 1, episodeNumbers = listOf(1), episodeTitles = listOf("Truth Be Told"),
+        )).render("{plex}")
+        assertThat(r.path).isEqualTo("TV Shows/Alias/Season 01/Alias - S01E01 - Truth Be Told")
+    }
+
+    @Test fun `kodi episode path uses year and sxe`() {
+        val r = engine(media = MediaMetadata(
+            type = MediaType.EPISODE, name = "Alias", year = 2001,
+            seasonNumber = 1, episodeNumbers = listOf(1), episodeTitles = listOf("Truth Be Told"),
+        )).render("{kodi}")
+        assertThat(r.path).isEqualTo("TV Shows/Alias (2001)/Season 1/Alias (2001) - 1x01 - Truth Be Told")
+    }
+
+    @Test fun `emby and jellyfin episode paths`() {
+        val m = MediaMetadata(
+            type = MediaType.EPISODE, name = "Alias", year = 2001,
+            seasonNumber = 1, episodeNumbers = listOf(1), episodeTitles = listOf("Truth Be Told"),
+        )
+        val expected = "TV Shows/Alias (2001)/Season 01/Alias (2001) - S01E01 - Truth Be Told"
+        assertThat(engine(media = m).render("{emby}").path).isEqualTo(expected)
+        assertThat(engine(media = m).render("{jellyfin}").path).isEqualTo(expected)
+    }
+
+    @Test fun `plex season zero uses Specials folder`() {
+        val r = engine(media = MediaMetadata(
+            type = MediaType.EPISODE, name = "Alias", year = 2001,
+            seasonNumber = 0, episodeNumbers = listOf(1), episodeTitles = listOf("The Legend of Rambaldi"),
+        )).render("{plex}")
+        assertThat(r.path).isEqualTo("TV Shows/Alias/Specials/Alias - S00E01 - The Legend of Rambaldi")
+    }
+
+    // ---- FileBot 对齐：修饰符语义修正 ----
+
+    @Test fun `upperInitial capitalizes every word`() {
+        val r = engine(media = MediaMetadata(name = "The Day a new Demon was born")).render("{n|upperInitial}")
+        assertThat(r.path).isEqualTo("The Day A New Demon Was Born")
+    }
+
+    @Test fun `lowerTrail titlecases trailing uppercase word`() {
+        val r = engine(media = MediaMetadata(name = "Gundam SEED")).render("{n|lowerTrail}")
+        assertThat(r.path).isEqualTo("Gundam Seed")
+    }
+
+    @Test fun `initialName reduces first name only`() {
+        val r = engine(media = MediaMetadata(director = "James Cameron")).render("{director|initialName}")
+        assertThat(r.path).isEqualTo("J. Cameron")
+    }
+
+    @Test fun `roman replaces small numbers in string`() {
+        val r = engine(media = MediaMetadata(name = "Star Wars Episode 4")).render("{n|roman}")
+        assertThat(r.path).isEqualTo("Star Wars Episode IV")
+    }
+
+    @Test fun `upper with pattern only transforms match`() {
+        val r = engine(media = MediaMetadata(name = "the matrix")).render("{n|upper('matrix')}")
+        assertThat(r.path).isEqualTo("the MATRIX")
+    }
+
+    @Test fun `colon with space gets spaced dash`() {
+        val r = engine(media = MediaMetadata(name = "Sissi: The Young Empress")).render("{n.colon('-')}")
+        assertThat(r.path).isEqualTo("Sissi - The Young Empress")
+    }
+
+    @Test fun `pad pads each number in string`() {
+        val r = engine(media = MediaMetadata(name = "1x1")).render("{n|pad(2,3)}")
+        assertThat(r.path).isEqualTo("01x001")
+    }
+
+    @Test fun `round zero precision prints integer`() {
+        val r = engine(media = MediaMetadata(rating = 3.14)).render("{rating|round(0)}")
+        assertThat(r.path).isEqualTo("3")
+    }
+
+    @Test fun `match is case insensitive`() {
+        val r = engine(media = MediaMetadata(name = "Firefly 2009")).render("{n|match('firefly')}")
+        assertThat(r.path).isEqualTo("Firefly")
+    }
+
+    @Test fun `match with group index`() {
+        val r = engine(media = MediaMetadata(name = "Firefly 2009")).render("{n|match('(\\d{4})', 1)}")
+        assertThat(r.path).isEqualTo("2009")
+    }
+
+    @Test fun `matchBrackets returns bracket contents`() {
+        val r = engine(media = MediaMetadata(name = "Show (US) [2020]")).render("{n|matchBrackets}")
+        assertThat(r.path).isEqualTo("US, 2020")
+    }
+
+    @Test fun `removeBrackets strips bracket groups`() {
+        val r = engine(media = MediaMetadata(name = "Show (US) [2020]")).render("{n|removeBrackets}")
+        assertThat(r.path).isEqualTo("Show")
+    }
+
+    @Test fun `remove strips given characters`() {
+        val r = engine(media = MediaMetadata(name = "A.B.C")).render("{n|remove('.')}")
+        assertThat(r.path).isEqualTo("ABC")
+    }
+
+    @Test fun `removeIllegalCharacters strips windows illegal chars`() {
+        val r = engine(media = MediaMetadata(name = "A?B")).render("{n|removeIllegalCharacters}")
+        assertThat(r.path).isEqualTo("AB")
+    }
+
+    @Test fun `replaceIllegalCharacters uses unicode lookalikes`() {
+        val r = engine(media = MediaMetadata(name = "A?B")).render("{n|replaceIllegalCharacters}")
+        assertThat(r.path).isEqualTo("A？B")
+    }
+
+    @Test fun `ascii folds diacritics`() {
+        val r = engine(media = MediaMetadata(name = "Café")).render("{n|ascii}")
+        assertThat(r.path).isEqualTo("Cafe")
+    }
+
+    @Test fun `validateFileName strips leading dot`() {
+        val r = engine(media = MediaMetadata(name = ".hack")).render("{n|validateFileName}")
+        assertThat(r.path).isEqualTo("hack")
+    }
+
+    @Test fun `joiningDistinct dedupes`() {
+        val r = engine(media = MediaMetadata(genres = listOf("Sci-Fi", "Drama", "Sci-Fi")))
+            .render("{genres|joiningDistinct(',')}")
+        assertThat(r.path).isEqualTo("Sci-Fi,Drama")
+    }
+
+    @Test fun `bounds takes first and last`() {
+        val r = engine(media = MediaMetadata(seasonYears = listOf(2002, 2003, 2004)))
+            .render("{sy|bounds|joining('-')}")
+        assertThat(r.path).isEqualTo("2002-2004")
+    }
+
+    @Test fun `truncate hard cuts at limit`() {
+        val r = engine(media = MediaMetadata(name = "The Quick Brown Fox")).render("{n|truncate(10)}")
+        assertThat(r.path).isEqualTo("The Quick")
+    }
+
+    @Test fun `isLatin detects script`() {
+        assertThat(engine(media = MediaMetadata(name = "Firefly")).render("{n|isLatin}").path).isEqualTo("true")
+        assertThat(engine(media = MediaMetadata(name = "权力的游戏")).render("{n|isLatin}").path).isEqualTo("false")
+    }
+
+    @Test fun `toDate then format renders year`() {
+        // 1672617600 = 2023-01-02T00:00:00Z（任意时区年份均为 2023）
+        val r = engine(media = MediaMetadata(name = "1672617600")).render("{n|toDate|format(yyyy)}")
+        assertThat(r.path).isEqualTo("2023")
     }
 }

@@ -20,19 +20,19 @@ class BindingResolver(
     private val excluded = setOf(
         // 媒体流信息类（需读取文件二进制，本项目不实现 MediaInfo）
         "vcf", "hpi", "vk", "aco", "acf", "af", "channels", "resolution", "width", "height",
-        "bitdepth", "hdr", "dovi", "bitrate", "vbr", "abr", "fps", "khz", "ar", "ws", "hd",
+        "bitdepth", "bitrate", "vbr", "abr", "kbps", "mbps", "fps", "khz", "ar", "ws", "hd",
         "dt", "duration", "seconds", "minutes", "hours", "crc32", "media", "video", "audio",
-        "text", "chapters", "audioLanguages", "textLanguages", "mediaTitle",
-        // 字幕类
-        "lang", "subt",
+        "text", "chapters", "menu", "audioLanguages", "textLanguages", "mediaTitle",
         // 音乐类
         "music", "medium", "album", "artist", "albumArtist",
         // 照片类
-        "image", "exif", "camera", "location",
+        "photo", "image", "exif", "camera", "location",
         // 外部数据源（仅 TMDB）
         "omdb", "db", "AnimeList", "XEM",
         // CLI/桌面环境
         "home", "output", "defines", "label",
+        // 其他（调试/扩展属性/历史路径，本项目不适用）
+        "json", "xattr", "mediaTags", "historic",
     )
 
     /** 解析单个变量名为值（支持 info.X / localize.<lang>.X / order.<NAME>.e / historic.f 等点路径）。 */
@@ -67,7 +67,9 @@ class BindingResolver(
             "s00" -> media.seasonNumber?.let { it.toString().padStart(options.padLength, '0') }
             "e00" -> media.episodeNumbers.firstOrNull()?.let { it.toString().padStart(options.padLength, '0') }
             "t" -> media.episodeTitles.joinToString(" & ").ifBlank { null }
-            "d", "airdate" -> media.episodeAirDates.firstOrNull()
+            // FileBot：d = 发布日期（电影回退到上映日期），airdate = 播出日期
+            "d" -> media.episodeAirDates.firstOrNull() ?: media.releaseDate
+            "airdate" -> media.episodeAirDates.firstOrNull()
             "startdate" -> media.firstAirDate ?: media.releaseDate
             "absolute" -> media.absoluteEpisode()
             "sn" -> media.seasonName
@@ -76,7 +78,7 @@ class BindingResolver(
             "special" -> media.special
             "regular" -> media.isRegular
             "anime" -> media.isAnime
-            "episodelist" -> episodelistString()
+            "episodelist", "episodes" -> episodelistString()
             // C 组
             "collection" -> media.collectionName
             "ci" -> media.collectionIndex
@@ -98,18 +100,19 @@ class BindingResolver(
             "pc" -> batch.partCount
             "di" -> batch.duplicateIndex
             "dc" -> batch.duplicateCount
+            "i" -> batch.index
             "az" -> media.name?.let { sortName(it).firstOrNull()?.toString()?.uppercase() }
             // E 组
-            "fn" -> file.displayName
+            "fn" -> baseName(file.displayName)
             "ext" -> file.ext
             "f" -> file.fullPath
             "folder" -> file.folder
-            "drive" -> file.drive
+            "drive", "root" -> file.drive
             "files" -> if (batch.filesCount > 0) "[${batch.filesCount} files]" else null
             "relativeFile" -> relativeFile()
             "mediaFile" -> file.fullPath
-            "mediaFileName" -> file.displayName
-            "original" -> file.displayName
+            "mediaFileName" -> baseName(file.displayName)
+            "original" -> baseName(file.displayName)
             "ct" -> file.lastModified
             "age" -> ageDays()
             "bytes" -> file.contentLength?.let { humanReadable(it) }
@@ -123,10 +126,21 @@ class BindingResolver(
             "cf" -> file.ext
             "vs" -> file.parsed?.source
             "source" -> file.parsed?.source
-            "edition" -> null
-            "tags" -> null
-            "s3d" -> null
+            "edition" -> file.parsed?.edition
+            "tags" -> listOfNotNull(file.parsed?.edition, file.parsed?.version).takeIf { it.isNotEmpty() }
+            "s3d" -> file.parsed?.threeD
+            // HDR / 杜比视界：FileBot 来自 MediaInfo，本项目从文件名解析（P1.2）
+            "hdr" -> file.parsed?.hdr?.takeUnless { it.equals("Dolby Vision", true) }
+            "dovi" -> file.parsed?.hdr?.takeIf { it.equals("Dolby Vision", true) }
             "group" -> file.parsed?.group
+            // 字幕类（来源文件名解析，P1.7；非字幕文件为 null）
+            "lang" -> file.parsed?.subtitleInfo?.language
+            "subt" -> subtitleTag()
+            // 媒体服务器标准路径（对齐 FileBot Naming Standard）
+            "plex" -> mediaServerPath(MediaServerStandard.PLEX)
+            "kodi" -> mediaServerPath(MediaServerStandard.KODI)
+            "emby" -> mediaServerPath(MediaServerStandard.EMBY)
+            "jellyfin" -> mediaServerPath(MediaServerStandard.JELLYFIN)
             // G 组
             "info" -> {
                 val key = path.substringAfter('.', "")
@@ -223,4 +237,65 @@ class BindingResolver(
 
     private fun selfSummary(): String =
         "n=${media.name}, y=${media.year}, s=${media.seasonNumber}, e=${media.episodeNumbers}, vf=${file.parsed?.resolution}"
+
+    /** FileBot 语义：fn / original / mediaFileName 均为不含扩展名的文件名。 */
+    private fun baseName(displayName: String?): String? =
+        displayName?.substringBeforeLast('.', displayName)
+
+    /**
+     * FileBot subt 标签：`.zh.forced` / `.en.default` / `.en.sdh` 风格。
+     * 无语言且无任何修饰符时为 null。
+     */
+    private fun subtitleTag(): String? {
+        val info = file.parsed?.subtitleInfo ?: return null
+        val sb = StringBuilder()
+        info.language?.let { sb.append('.').append(it) }
+        if (info.forced) sb.append(".forced")
+        if (info.default) sb.append(".default")
+        if (info.hearingImpaired) sb.append(".sdh")
+        return sb.toString().ifBlank { null }
+    }
+
+    /**
+     * 媒体服务器标准路径（对齐 FileBot Naming Standard，forums t=4116）。
+     *
+     * 电影（四种标准一致）：`Movies/{n} ({y})/{n} ({y})`
+     * 剧集：
+     * - PLEX：`TV Shows/{n}/Season {s00}/{n} - {s00e00} - {t}`
+     * - KODI：`TV Shows/{n} ({y})/Season {s}/{n} ({y}) - {sxe} - {t}`
+     * - EMBY / JELLYFIN：`TV Shows/{n} ({y})/Season {s00}/{n} ({y}) - {s00e00} - {t}`
+     *
+     * 季号为 0 时季目录为 `Specials`；缺字段的片段自动省略（与模板容错一致）。
+     */
+    private fun mediaServerPath(standard: MediaServerStandard): String? {
+        val n = media.name ?: return null
+        val y = media.year
+        if (media.isMovie) {
+            val base = if (y != null) "$n ($y)" else n
+            return "Movies/$base/$base"
+        }
+        val s = media.seasonNumber
+        val withYear = standard != MediaServerStandard.PLEX
+        val seriesName = if (withYear && y != null) "$n ($y)" else n
+        val seasonFolder = when {
+            s == null -> null
+            s <= 0 -> "Specials"
+            standard == MediaServerStandard.KODI -> "Season $s"
+            else -> "Season ${s.toString().padStart(options.padLength, '0')}"
+        }
+        val epCode = when (standard) {
+            MediaServerStandard.KODI -> sxe()
+            else -> s00e00()
+        }
+        val fileName = buildString {
+            append(seriesName)
+            if (epCode != null) append(" - ").append(epCode)
+            val t = media.episodeTitles.joinToString(" & ").ifBlank { null }
+            if (t != null) append(" - ").append(t)
+        }
+        return listOfNotNull("TV Shows", seriesName, seasonFolder, fileName).joinToString("/")
+    }
 }
+
+/** 媒体服务器命名标准（FileBot Naming Standard）。 */
+enum class MediaServerStandard { PLEX, KODI, EMBY, JELLYFIN }

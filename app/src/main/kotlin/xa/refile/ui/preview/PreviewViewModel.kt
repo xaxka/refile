@@ -342,6 +342,8 @@ class PreviewViewModel @Inject constructor(
             displayName = fileName,
             ext = ext,
             fullPath = fm.filePath,
+            folder = parentDir(fm.filePath).substringAfterLast('/'),
+            drive = rootPath,
             parsed = fm.parsed,
         )
         val batchCtx = BatchContext(today = today)
