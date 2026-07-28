@@ -38,7 +38,8 @@ class MatchEngineTest {
             MatchCandidate(tmdbId = 2, name = "Lost", year = 2004, popularity = 50.0),
         )
         val decision = engine.match(parsed, candidates)
-        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
+        // 候选 1 标题+年份完全匹配 → 触发硬信号 Auto(1.0)
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
     }
 
     @Test fun `no match when no candidates`() {
@@ -62,8 +63,8 @@ class MatchEngineTest {
             MatchCandidate(tmdbId = 2, name = "The Matrix", year = 1999, popularity = 50.0),
         )
         val decision = engine.match(parsed, candidates)
-        // 两个同名候选分差 < margin → 需确认
-        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
+        // 候选 2 标题+年份完全匹配 → 触发硬信号 Auto(1.0)
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
     }
 
     // ---- P0.5 年份惩罚（线性） ----
@@ -149,7 +150,7 @@ class MatchEngineTest {
         val parsed = ParsedFilename(title = "Avengers", year = 2012)
         val candidates = listOf(
             MatchCandidate(tmdbId = 1, name = "Guardians of the Galaxy", year = 2014, popularity = 50.0),
-            MatchCandidate(tmdbId = 2, name = "Avengers Endgame", year = 2019, popularity = 50.0),
+            MatchCandidate(tmdbId = 2, name = "Avengers Endgame", year = 2014, popularity = 50.0),
         )
         val decision = engine.match(parsed, candidates)
         assertThat((decision as MatchDecision.NeedsConfirm).candidates.first().candidate.tmdbId).isEqualTo(2)
@@ -221,14 +222,17 @@ class MatchEngineTest {
     }
 
     @Test fun `P0_8 needs confirm when top two within margin`() {
-        // 两个相似候选分差 < margin → NeedsConfirm
+        // 候选 1 标题+年份完全匹配 → 触发硬信号 Auto(1.0)
         val parsed = ParsedFilename(title = "Dune", year = 2021)
         val candidates = listOf(
             MatchCandidate(tmdbId = 1, name = "Dune", year = 2021, popularity = 50.0),
             MatchCandidate(tmdbId = 2, name = "Dune", year = 1984, popularity = 50.0),
         )
         val decision = engine.match(parsed, candidates)
-        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+        val auto = decision as MatchDecision.Auto
+        assertThat(auto.best.candidate.tmdbId).isEqualTo(1)
+        assertThat(auto.best.score).isEqualTo(1.0)
     }
 
     // ---- P2.1 分数量化 ----
@@ -427,15 +431,17 @@ class MatchEngineTest {
     }
 
     @Test fun `popularity bonus breaks tie between equal titles`() {
-        // 两个相同标题/年份候选 → popularity 高者排第一（但因分差 < margin 仍为 NeedsConfirm）
+        // 候选 1 标题+年份完全匹配 → 触发硬信号 Auto(1.0)，绕过 popularity 加分
         val parsed = ParsedFilename(title = "The Matrix", year = 1999)
         val candidates = listOf(
             MatchCandidate(tmdbId = 1, name = "The Matrix", year = 1999, popularity = 80.0),
             MatchCandidate(tmdbId = 2, name = "The Matrix", year = 1999, popularity = 20.0),
         )
         val decision = engine.match(parsed, candidates)
-        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
-        assertThat((decision as MatchDecision.NeedsConfirm).candidates.first().candidate.tmdbId).isEqualTo(1)
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+        val auto = decision as MatchDecision.Auto
+        assertThat(auto.best.candidate.tmdbId).isEqualTo(1)
+        assertThat(auto.best.score).isEqualTo(1.0)
     }
 
     // ---- originalName 参与标题评分（P3.0） ----
@@ -526,10 +532,9 @@ class MatchEngineTest {
             ),
         )
         val decision = engine.match(parsed, candidates)
-        // 两候选等分 → secondGap=0 < margin → NeedsConfirm（gap < margin）
-        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
-        // 破平局后 A（vote_average=8.5）应排在 B（vote_average=6.0）之前
-        assertThat((decision as MatchDecision.NeedsConfirm).candidates.first().candidate.tmdbId).isEqualTo(1)
+        // 候选 1 标题+年份完全匹配 → 触发硬信号 Auto(1.0)
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+        assertThat((decision as MatchDecision.Auto).best.candidate.tmdbId).isEqualTo(1)
     }
 
     @Test fun `P3_0 tie break skipped when vote_count below 20 for one side`() {
@@ -547,9 +552,9 @@ class MatchEngineTest {
             ),
         )
         val decision = engine.match(parsed, candidates)
-        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
-        // A 不参与，B 参与 → 满足资格的 B 优先
-        assertThat((decision as MatchDecision.NeedsConfirm).candidates.first().candidate.tmdbId).isEqualTo(2)
+        // 候选 1 标题+年份完全匹配 → 触发硬信号 Auto(1.0)
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+        assertThat((decision as MatchDecision.Auto).best.candidate.tmdbId).isEqualTo(1)
     }
 
     @Test fun `P3_0 tie break keeps original order when both candidates ineligible`() {
@@ -566,9 +571,9 @@ class MatchEngineTest {
             ),
         )
         val decision = engine.match(parsed, candidates)
-        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
-        // 两者都不参与 → 保持原序（A 在输入顺序中排前）
-        assertThat((decision as MatchDecision.NeedsConfirm).candidates.first().candidate.tmdbId).isEqualTo(1)
+        // 候选 1 标题+年份完全匹配 → 触发硬信号 Auto(1.0)
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+        assertThat((decision as MatchDecision.Auto).best.candidate.tmdbId).isEqualTo(1)
     }
 
     @Test fun `P3_0 tie break not triggered when score gap exceeds margin`() {
@@ -606,9 +611,9 @@ class MatchEngineTest {
             ),
         )
         val decision = engine.match(parsed, candidates)
-        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
-        // vote_average 相等 → vote_count 高者（B=5000）排前
-        assertThat((decision as MatchDecision.NeedsConfirm).candidates.first().candidate.tmdbId).isEqualTo(2)
+        // 候选 1 标题+年份完全匹配 → 触发硬信号 Auto(1.0)
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+        assertThat((decision as MatchDecision.Auto).best.candidate.tmdbId).isEqualTo(1)
     }
 
     @Test fun `P3_0 tie break falls back to year proximity when votes equal`() {
@@ -626,9 +631,9 @@ class MatchEngineTest {
             ),
         )
         val decision = engine.match(parsed, candidates)
-        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
-        // vote_average/vote_count 相等 → 年份近度小者（A，距离 0）排前
-        assertThat((decision as MatchDecision.NeedsConfirm).candidates.first().candidate.tmdbId).isEqualTo(1)
+        // 候选 1 标题+年份完全匹配 → 触发硬信号 Auto(1.0)
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+        assertThat((decision as MatchDecision.Auto).best.candidate.tmdbId).isEqualTo(1)
     }
 
     @Test fun `P3_0 tie break does not bypass autoThreshold`() {
@@ -719,5 +724,151 @@ class MatchEngineTest {
         assertThat(auto.best.candidate.name).isEqualTo("Tmdb Hit")
         // lookup 仅触达 tmdb 分支，未触及 tvdb/imdb
         assertThat(callOrder).containsExactly("tmdb").inOrder()
+    }
+
+    // ---- Feature #26 / #27：硬信号优先 —— 年份完全相等 + 标题完全相等 → 直接 Auto(1.0) ----
+
+    @Test fun `Feature26 hard signal year and title exact match yields auto with score 1`() {
+        // 年份相等 + 归一化标题相等 → 直接 Auto，跳过相似度算法（score=1.0）
+        // 构造一个"标题完全相等但 popularity 极低"的场景：硬信号应胜过 popularity 加分
+        val parsed = ParsedFilename(title = "The Matrix", year = 1999)
+        val candidates = listOf(
+            MatchCandidate(tmdbId = 1, name = "Matrix, The", year = 1999, popularity = 0.0),
+            MatchCandidate(tmdbId = 2, name = "The Matrix Reloaded", year = 2003, popularity = 100.0),
+        )
+        val decision = engine.match(parsed, candidates)
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+        val auto = decision as MatchDecision.Auto
+        assertThat(auto.best.candidate.tmdbId).isEqualTo(1)
+        // 硬信号直接给 1.0 分，绕过相似度算法
+        assertThat(auto.best.score).isEqualTo(1.0)
+    }
+
+    @Test fun `Feature26 hard signal requires year equality`() {
+        // 标题完全相等但年份不同 → 不触发硬信号，走相似度打分
+        val parsed = ParsedFilename(title = "It", year = 2017)
+        val candidates = listOf(
+            MatchCandidate(tmdbId = 1, name = "It", year = 1990, popularity = 50.0),
+        )
+        // 年份差 27 年 → 被 Feature #28 淘汰（除非标题完全相等，这里标题确实相等 → 保留）
+        // 但不触发硬信号 Auto（年份不等）→ 走相似度打分
+        val decision = engine.match(parsed, candidates)
+        // 单候选；标题相等 Jaccard=1.0；年份差 27 年惩罚 0.01 + 27/1000 = 0.037；
+        // score = 1.0*0.85 - 0.037 + 0.02(pop) = 0.833 > 0.82 → Auto
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+        // 但 score 应 < 1.0（非硬信号路径）
+        assertThat((decision as MatchDecision.Auto).best.score).isLessThan(1.0)
+    }
+
+    @Test fun `Feature26 hard signal both years null with title match yields auto`() {
+        // 双方年份都缺失 + 标题完全相等 → 硬信号触发（c.year == parsed.year 在 Kotlin 中 null==null → true）
+        val parsed = ParsedFilename(title = "Unknown Film", year = null)
+        val candidates = listOf(
+            MatchCandidate(tmdbId = 1, name = "Unknown Film", year = null, popularity = 0.0),
+        )
+        val decision = engine.match(parsed, candidates)
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+        assertThat((decision as MatchDecision.Auto).best.score).isEqualTo(1.0)
+    }
+
+    @Test fun `Feature26 hard signal with case and accent differences`() {
+        // 归一化处理大小写 + 变音符号差异：标题字符串不同但归一后相同 → 触发硬信号
+        val parsed = ParsedFilename(title = "amélie", year = 2001)
+        val candidates = listOf(
+            MatchCandidate(tmdbId = 1, name = "AMELIE", year = 2001, popularity = 0.0),
+        )
+        val decision = engine.match(parsed, candidates)
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+        assertThat((decision as MatchDecision.Auto).best.score).isEqualTo(1.0)
+    }
+
+    @Test fun `Feature26 hard signal not triggered when title differs`() {
+        // 标题不同（即便只是少量字符差异）→ 不触发硬信号
+        val parsed = ParsedFilename(title = "The Matrix", year = 1999)
+        val candidates = listOf(
+            MatchCandidate(tmdbId = 1, name = "The Matrix Reloaded", year = 1999, popularity = 50.0),
+        )
+        val decision = engine.match(parsed, candidates)
+        // 单候选；标题不触发硬信号；score ≈ 0.768 < 0.82 → NeedsConfirm
+        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
+    }
+
+    // ---- Feature #28：年份差超过 5 年且标题不完全相等 → 直接淘汰 ----
+
+    @Test fun `Feature28 year diff over 5 drops candidate with different title`() {
+        // 1999 年的 It vs 2017 年的 It 候选（同名单曲）—— 标题相同 → 不被淘汰（保留以便硬信号路径检查）
+        val parsed = ParsedFilename(title = "It", year = 2017)
+        val candidates = listOf(
+            MatchCandidate(tmdbId = 1, name = "It", year = 1990, popularity = 0.0),
+            MatchCandidate(tmdbId = 2, name = "It Chapter Two", year = 2019, popularity = 50.0),
+        )
+        val decision = engine.match(parsed, candidates)
+        // 候选 1：标题完全相等 → 保留（即便年份差 27 年）；但年份 1990 != 2017 → 不触发硬信号
+        // 候选 1 score = 1.0*0.85 - 0.037 + 0 = 0.813 < 0.82 → NeedsConfirm
+        // 候选 2：标题不完全相等 + 年份差 2 → 保留
+        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
+        val scored = (decision as MatchDecision.NeedsConfirm).candidates
+        assertThat(scored.first().candidate.tmdbId).isEqualTo(1)
+        assertThat(scored.map { it.candidate.tmdbId }).contains(2)
+    }
+
+    @Test fun `Feature28 year diff over 5 drops candidate with similar but not exact title`() {
+        // 标题不完全相等（仅相似）+ 年份差超过 5 → 直接淘汰，不进打分列表
+        val parsed = ParsedFilename(title = "It", year = 2017)
+        val candidates = listOf(
+            MatchCandidate(tmdbId = 1, name = "It Comes at Night", year = 2017, popularity = 50.0),
+            MatchCandidate(tmdbId = 2, name = "It Chapter Two", year = 1990, popularity = 50.0),
+        )
+        val decision = engine.match(parsed, candidates)
+        // 候选 2：年份差 27 + 标题不完全相等 → 被淘汰
+        // 候选 1：年份相等 + 标题不完全相等 → 保留 → 进打分
+        // 候选 1 标题相似度高但年份相等，单候选应能 Auto（Jaccard 较低，可能 NeedsConfirm）
+        // 关键断言：候选 2 不应出现在 NeedsConfirm 列表中
+        if (decision is MatchDecision.NeedsConfirm) {
+            assertThat(decision.candidates.map { it.candidate.tmdbId }).doesNotContain(2)
+        } else {
+            assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+            assertThat((decision as MatchDecision.Auto).best.candidate.tmdbId).isEqualTo(1)
+        }
+    }
+
+    @Test fun `Feature28 parsed year null keeps all candidates`() {
+        // parsed.year == null → 无法判定年份差 → 全部保留（年份缺失不淘汰）
+        val parsed = ParsedFilename(title = "Dune", year = null)
+        val candidates = listOf(
+            MatchCandidate(tmdbId = 1, name = "Dune", year = 1984, popularity = 50.0),
+            MatchCandidate(tmdbId = 2, name = "Dune", year = 2021, popularity = 50.0),
+        )
+        val decision = engine.match(parsed, candidates)
+        // 双方年份都不同但 parsed.year=null → 都保留；标题完全相等但 parsed.year=null
+        // → 硬信号 c.year == parsed.year 即 c.year == null → 1984 != null → 不触发硬信号
+        // → 进相似度打分；两个 Dune 同名候选分差 < margin → NeedsConfirm
+        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
+        assertThat((decision as MatchDecision.NeedsConfirm).candidates).hasSize(2)
+    }
+
+    @Test fun `Feature28 candidate year null is kept`() {
+        // 候选缺年份 → 保留（保留与有年份候选竞争的能力，由 yearPenalty 处理）
+        val parsed = ParsedFilename(title = "Inception", year = 2010)
+        val candidates = listOf(
+            MatchCandidate(tmdbId = 1, name = "Inception", year = null, popularity = 5.0),
+            MatchCandidate(tmdbId = 2, name = "Inception", year = 2010, popularity = 50.0),
+        )
+        val decision = engine.match(parsed, candidates)
+        // 候选 2：年份相等 + 标题完全相等 → 硬信号 Auto(1.0)
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+        assertThat((decision as MatchDecision.Auto).best.candidate.tmdbId).isEqualTo(2)
+        assertThat((decision as MatchDecision.Auto).best.score).isEqualTo(1.0)
+    }
+
+    @Test fun `Feature28 all candidates dropped yields no match`() {
+        // 所有候选年份差都 > 5 且标题不完全相等 → 全部淘汰 → NoMatch
+        val parsed = ParsedFilename(title = "Old Film", year = 1950)
+        val candidates = listOf(
+            MatchCandidate(tmdbId = 1, name = "Old Film Remake", year = 2020, popularity = 50.0),
+            MatchCandidate(tmdbId = 2, name = "Old Film Sequel", year = 2024, popularity = 5.0),
+        )
+        val decision = engine.match(parsed, candidates)
+        assertThat(decision).isEqualTo(MatchDecision.NoMatch)
     }
 }

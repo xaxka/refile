@@ -2,7 +2,6 @@ package xa.refile.core.matcher
 
 import xa.refile.core.model.MediaType
 import xa.refile.core.parser.ParsedFilename
-import java.text.Normalizer
 import kotlin.math.abs
 
 /**
@@ -157,37 +156,19 @@ class ConfidenceScorer(
     }
 
     /**
-     * P0.7 / P2.3：归一化。
-     * 流程：lowercase → 重排尾随冠词（`Matrix, The` → `The Matrix`）→ NFD 分解去变音符号（é→e）
-     *      → 去非字母数字 → 折叠空格 → 去前导冠词。
-     * 注：完整 Any-Latin 音译（如 中文→拼音）需 ICU4J，此处仅做 Latin-ASCII 级别归一。
+     * P0.7 / P2.3 / Feature #25：归一化。
      *
-     * P2.3 冠词归一化：去除前导 `the/a/an` 后再比对，让 `The Matrix` 与 `Matrix, The` 高分。
-     * 仅去除一次前导冠词（不去中段 The Wonderful Wizard of Oz 这类）。
+     * 委托 [TextNormalizer.normalize] 完成跨脚本归一：
+     * lowercase → 重排尾随冠词（`Matrix, The` → `The Matrix`）→ ICU `Any-Latin; Latin-ASCII` 转写
+     * （中文→拼音、日文→罗马字、西里尔→拉丁等）→ NFD 分解去变音符号（é→e）→ 去非字母数字 →
+     * 折叠空格 → 去前导冠词。
+     *
+     * 改造前仅 NFD 去变音，无法处理跨脚本：`攻壳机动队` 与 `Ghost in the Shell` 直接判 0 分。
+     * 现经 ICU 音译后两者均落入 Latin 空间，可正常算相似度（不一定高分，但能进入候选打分）。
+     *
+     * 注：[MatchEngine] 硬信号判定（标题完全相等）也调用本方法，确保 scorer 与硬信号使用同一归一。
      */
-    private fun normalize(s: String): String {
-        val reordered = reorderTrailingArticle(s.lowercase())
-        val nfd = Normalizer.normalize(reordered, Normalizer.Form.NFD)
-            .replace(Regex("\\p{Mn}"), "")
-            .replace(Regex("[^\\p{L}\\p{N}\\s]"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-        return stripLeadingArticle(nfd)
-    }
-
-    /** P2.3：将 `Matrix, The` 重排为 `The Matrix`，再走常规归一（避免尾随冠词被当成普通 token）。 */
-    private fun reorderTrailingArticle(lowerCased: String): String {
-        val m = TRAILING_ARTICLE.find(lowerCased) ?: return lowerCased
-        val name = m.groupValues[1].trim()
-        val article = m.groupValues[2]
-        return "$article $name"
-    }
-
-    /** P2.3：去除前导冠词 the/a/an（仅一次，避免循环影响 `The The` 这种乐队名）。 */
-    private fun stripLeadingArticle(s: String): String {
-        val m = LEADING_ARTICLE.find(s) ?: return s
-        return s.substring(m.range.last + 1).trimStart()
-    }
+    private fun normalize(s: String): String = TextNormalizer.normalize(s)
 
     private fun tokens(s: String): Set<String> = normalize(s).split(' ').filter { it.isNotEmpty() }.toSet()
 
@@ -319,10 +300,8 @@ class ConfidenceScorer(
         private const val JW_SCALING = 0.1          // P0.6: Jaro-Winkler scaling factor
         private const val MAX_JW_PREFIX = 4         // P0.6: Jaro-Winkler max common prefix
         private const val SXE_BONUS = 0.10          // P2.2: SxE 完整命中加分
-        // P2.3：前导冠词（仅去除一次，避免循环影响 `The The` 这种乐队名）
-        private val LEADING_ARTICLE = Regex("^(?:the|a|an)\\s+", RegexOption.IGNORE_CASE)
-        // P2.3：尾随冠词排序式命名 `Matrix, The` / `Lord of the Rings, The`（输入已 lowercase）
-        private val TRAILING_ARTICLE = Regex("^(.+?),\\s*(the|a|an)\\s*\$")
+        // P2.3 冠词归一化已迁移到 [TextNormalizer]（LEADING_ARTICLE / TRAILING_ARTICLE），
+        // 由 [TextNormalizer.normalize] 统一处理 lowercase / 重排尾随冠词 / 去前导冠词。
     }
 }
 
@@ -336,6 +315,13 @@ class ConfidenceScorer(
  * P3.0：同分破平局 —— best 与次名分差 < `margin/2` 时，启用
  *       `vote_average`（>0 且 `vote_count≥20`）→ `vote_count` → 年份近度 重排序；
  *       破平局后的 best 仍需 `score >= autoThreshold` 且 `secondGap >= margin` 才 Auto。
+ *
+ * Feature #26 / #27（硬信号优先）：年份完全相等 + 归一化标题完全相等 → 直接 Auto（score=1.0），
+ * 跳过相似度算法。覆盖场景：解析标题与候选名仅大小写 / 冠词 / 变音符号差异（如 `The Matrix` ↔ `Matrix, The`），
+ * 或中英对照经 ICU 音译后字符级一致（`攻壳机动队` ↔ TMDB originalName `攻殻機動隊` 经 NFD 后均去变音）。
+ *
+ * Feature #28（年份差异淘汰）：年份差超过 [HARD_YEAR_TOLERANCE] 且标题不完全相等 → 直接淘汰，
+ * 不进候选列表。避免 2010 年的 `Inception` 候选把 1999 年的 `Inception`（同名单曲）拉进待确认列表挤占排序。
  */
 class MatchEngine(
     private val scorer: ConfidenceScorer = ConfidenceScorer(),
@@ -344,7 +330,38 @@ class MatchEngine(
 ) {
     fun match(parsed: ParsedFilename, candidates: List<MatchCandidate>): MatchDecision {
         if (candidates.isEmpty()) return MatchDecision.NoMatch
-        val scored = candidates.map { ScoredCandidate(it, scorer.score(parsed, it)) }
+
+        // Feature #28：年份差超过 5 年且标题不完全相等 → 直接淘汰，不进候选列表
+        val parsedTitle = parsed.title
+        val parsedYear = parsed.year
+        val filtered = if (parsedYear == null) {
+            // parsed 无年份 → 无法判定年份差，全部保留（年份缺失不淘汰）
+            candidates
+        } else {
+            candidates.filter { c ->
+                val cy = c.year
+                // 候选缺年份 → 保留（保留与有年份候选竞争的能力，由 yearPenalty 处理）
+                cy == null ||
+                    abs(parsedYear - cy) <= HARD_YEAR_TOLERANCE ||
+                    (parsedTitle != null && TextNormalizer.normalize(c.name) == TextNormalizer.normalize(parsedTitle))
+            }
+        }
+        if (filtered.isEmpty()) return MatchDecision.NoMatch
+
+        // Feature #26 / #27：硬信号优先 —— 年份完全相等 + 标题完全相等 → 直接 Auto（score=1.0）
+        if (parsedTitle != null) {
+            val normParsed = TextNormalizer.normalize(parsedTitle)
+            if (normParsed.isNotBlank()) {
+                val hard = filtered.firstOrNull { c ->
+                    c.year == parsedYear && TextNormalizer.normalize(c.name) == normParsed
+                }
+                if (hard != null) {
+                    return MatchDecision.Auto(ScoredCandidate(hard, score = 1.0))
+                }
+            }
+        }
+
+        val scored = filtered.map { ScoredCandidate(it, scorer.score(parsed, it)) }
             .sortedByDescending { it.score }
         val best = scored.first()
         val second = scored.getOrNull(1)
@@ -365,6 +382,19 @@ class MatchEngine(
         } else {
             MatchDecision.NeedsConfirm(tieBroken)
         }
+    }
+
+    companion object {
+        /**
+         * Feature #28：年份容差上限。parsed.year 与 candidate.year 之差超过此值、
+         * 且标题归一化后不完全相等 → 候选直接淘汰，不进打分列表。
+         *
+         * 取 5 年容差覆盖常见场景：
+         * - 同片不同地区发行年差 1-2 年
+         * - 片中年份与 TMDB release_date 差 1 年
+         * - 重制版（如 2018 Hollow Man vs 2000 Hollow Man，差 18 年）应被淘汰
+         */
+        const val HARD_YEAR_TOLERANCE = 5
     }
 
     /**
