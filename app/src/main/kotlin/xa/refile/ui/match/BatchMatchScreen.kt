@@ -461,7 +461,7 @@ private fun MediaReselectSection(
                         strokeWidth = 2.dp,
                     )
                 } else {
-                    Icon(Icons.Default.Search, contentDescription = null)
+                    Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 }
             },
         )
