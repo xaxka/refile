@@ -82,7 +82,13 @@ android {
 }
 
 dependencies {
-    implementation(project(":core"))
+    implementation(project(":core")) {
+        // Android 框架已提供 org.xmlpull.v1.XmlPullParser，排除 dav4jvm 传递依赖的
+        // xpp3 / xmlpull，避免 R8 报 "Library class implements program class" 错误。
+        exclude(group = "org.ogce", module = "xpp3")
+        exclude(group = "xmlpull", module = "xmlpull")
+        exclude(group = "net.sf.kxml", module = "kxml2")
+    }
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

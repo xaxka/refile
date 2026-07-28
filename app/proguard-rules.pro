@@ -101,6 +101,10 @@
 -dontwarn at.bitfire.dav4jvm.**
 -keep class at.bitfire.dav4jvm.** { *; }
 
+# Android 框架已提供 org.xmlpull.v1.XmlPullParser；dav4jvm 传递依赖的 xpp3/xmlpull
+# 已在 app/build.gradle.kts 排除，此处兜底抑制残留引用告警。
+-dontwarn org.xmlpull.**
+
 # ---------------------------------------------------------------------------
 # 应用自身：被反射 / 序列化间接引用的 data class 保持字段名
 # （TmdbDtos 等已在 :core 经 @Serializable 规则覆盖；此处兜底 app 模块内的备份/缓存模型）
