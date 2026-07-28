@@ -13,6 +13,7 @@ import xa.refile.core.naming.MediaMetadata
 import xa.refile.core.parser.FilenameParser
 import xa.refile.core.parser.ParsedFilename
 import xa.refile.core.tmdb.TmdbImages
+import xa.refile.core.tmdb.TmdbMapper
 import xa.refile.data.prefs.SettingsRepository
 import xa.refile.data.repository.TmdbCacheRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -568,12 +569,19 @@ class MatchViewModel @Inject constructor(
                     ?: emptyMap()
                 val titles = episodes.mapNotNull { byNum[it]?.name }
                 val airDates = episodes.mapNotNull { byNum[it]?.airDate }
+                // DVD 顺序换算：当文件名给出绝对集号、且 TMDB 返回含 DVD 顺序 episode group 时，
+                // 拉取 group detail 把"原集号→DVD 顺序集号"映射填入 media.order["dvd"]，
+                // 模板可用 {order.dvd.e} 输出 DVD 顺序集号（增强项，失败静默跳过）。
+                val dvdOrder = if (parsed.isAbsoluteEpisode) {
+                    resolveDvdOrder(tmdbCache, tv, season)
+                } else null
                 tv.copy(
                     seasonNumber = finalSeason,
                     episodeNumbers = episodes,
                     episodeTitles = if (titles.size > 1) listOf(titles.joinToString(" & ")) else titles,
                     episodeAirDates = airDates,
                     seasonName = season?.name,
+                    order = dvdOrder?.let { tv.order + ("dvd" to it) } ?: tv.order,
                 )
             }
         } else {
@@ -609,6 +617,29 @@ class MatchViewModel @Inject constructor(
             remaining -= count
         }
         return null
+    }
+
+    /**
+     * DVD 顺序换算：读取 [MediaMetadata.info] 中由 [TmdbMapper] 暴露的 `dvdEpisodeGroupId`，
+     * 拉取 episode group 详情并把当前季 episodes 按 TMDB episode id 对齐到 DVD 顺序集号。
+     *
+     * 返回 `originalEpisodeNumber(String) → dvdEpisodeNumber(Int)` 映射；任一环节缺失或失败
+     * （无 DVD group / group 详情拉取失败 / 无匹配集）返回 null，调用方保持原 order 不变。
+     */
+    private suspend fun resolveDvdOrder(
+        tmdbCache: TmdbCacheRepository,
+        tv: MediaMetadata,
+        season: xa.refile.core.tmdb.SeasonDetail?,
+    ): Map<String, Int>? {
+        val dvdGroupId = tv.info["dvdEpisodeGroupId"]?.takeIf { it.isNotBlank() } ?: return null
+        val seasonEpisodes = season?.episodes ?: return null
+        return try {
+            val group = tmdbCache.getEpisodeGroup(dvdGroupId)
+            TmdbMapper.dvdOrderMap(seasonEpisodes, group)
+        } catch (t: Throwable) {
+            if (t is kotlinx.coroutines.CancellationException) throw t
+            null
+        }?.takeIf { it.isNotEmpty() }
     }
 
     /** 搜索结果轻量 [MediaMetadata] → [MatchCandidate]（popularity 轻量映射不含，置 0.0）。 */

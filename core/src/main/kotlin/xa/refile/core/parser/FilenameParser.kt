@@ -25,13 +25,16 @@ import xa.refile.core.model.MediaType
  */
 class FilenameParser {
 
-    /** 视频扩展名（不区分大小写），见 §5.2。iso 默认不参与重命名但可解析。 */
+    /** 视频扩展名（不区分大小写），见 §5.2。iso 默认不参与重命名但可解析。
+     *  mk3d/mks/mka 为 Matroska 系列衍生（3D / 字幕流 / 音频流），ogm 为 Ogg Media 容器，
+     *  strm/strmlnk 为 Kodi/Jellyfin 流媒体指向文件（文本条目，按视频库管理）。 */
     val videoExtensions: Set<String> = setOf(
         "mkv", "mp4", "m4v", "avi", "mov", "wmv", "flv", "ts", "m2ts", "webm", "mpg", "mpeg", "rmvb", "iso",
+        "mk3d", "mks", "mka", "ogm", "strm", "strmlnk",
     )
 
-    /** 字幕扩展名（伴随文件）。 */
-    val subtitleExtensions: Set<String> = setOf("srt", "ass", "ssa", "sub", "idx")
+    /** 字幕扩展名（伴随文件）。sup 为 PGS 图形字幕（Remux 极常见），vtt 为 WebVTT，smi 为 SAMI。 */
+    val subtitleExtensions: Set<String> = setOf("srt", "ass", "ssa", "sub", "idx", "sup", "vtt", "smi")
 
     /** 海报/nfo 等伴随文件扩展名。 */
     val companionExtensions: Set<String> = setOf("nfo", "jpg", "jpeg", "png", "tbn", "bnr")
@@ -180,7 +183,8 @@ class FilenameParser {
         val lastDot = name.lastIndexOf('.')
         if (lastDot <= 0) return name to ""
         val ext = name.substring(lastDot + 1).lowercase()
-        if (ext.length in 1..5 && ext.none { it.isWhitespace() }) {
+        // 上限放宽到 7 以容纳 strmlnk；仍排除含空格的怪异尾巴。
+        if (ext.length in 1..7 && ext.none { it.isWhitespace() }) {
             return name.substring(0, lastDot) to ext
         }
         return name to ""
