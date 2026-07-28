@@ -320,7 +320,7 @@ object PipeModifiers {
     private val BRACKET_GROUP = Regex("""\s*[\(\[\{][^\)\]\}]*[\)\]\}]""")
 
     /** 括号内容提取：分别捕获圆/方/花括号内部。 */
-    private val BRACKET_CONTENT = Regex("""\(([^()]*)\)|\[([^\]\[]*)\]|\{([^{}]*)}""")
+    private val BRACKET_CONTENT = Regex("""\(([^()]*)\)|\[([^\]\[]*)\]|\{([^{}]*)\}""")
 
     /** 对 pattern 命中的每段应用变换；非法正则返回 null。 */
     private inline fun replaceMatches(s: String, pattern: String, crossinline transform: (String) -> String): String? =
