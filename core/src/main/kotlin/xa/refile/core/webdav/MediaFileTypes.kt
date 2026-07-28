@@ -9,16 +9,19 @@ package xa.refile.core.webdav
  * 扩展名不区分大小写，比较时统一小写。
  */
 object MediaFileTypes {
-    /** 可被勾选选中参与重命名的视频扩展名（不含 `iso`）。 */
+    /** 可被勾选选中参与重命名的视频扩展名（不含 `iso`）。
+     *  mk3d/mks/mka（Matroska 衍生）、ogm（Ogg Media）、strm/strmlnk（流媒体指向文件）
+     *  与 [FilenameParser.videoExtensions] 保持一致，避免浏览器侧漏识别。 */
     val VIDEO_EXTENSIONS: Set<String> = setOf(
         "mkv", "mp4", "m4v", "avi", "mov", "wmv", "flv", "ts", "m2ts", "webm", "mpg", "mpeg", "rmvb",
+        "mk3d", "mks", "mka", "ogm", "strm", "strmlnk",
     )
 
     /** 仅显示不参与重命名的扩展名（`iso` 镜像）。 */
     val DISPLAY_ONLY_EXTENSIONS: Set<String> = setOf("iso")
 
-    /** 字幕扩展名（伴随主视频改名）。 */
-    val SUBTITLE_EXTENSIONS: Set<String> = setOf("srt", "ass", "ssa", "sub", "idx")
+    /** 字幕扩展名（伴随主视频改名）。sup=PGS（Remux 常见），vtt=WebVTT，smi=SAMI。 */
+    val SUBTITLE_EXTENSIONS: Set<String> = setOf("srt", "ass", "ssa", "sub", "idx", "sup", "vtt", "smi")
 
     /** 伴随文件扩展名：字幕 + nfo + 常见海报图。 */
     val COMPANION_EXTENSIONS: Set<String> = SUBTITLE_EXTENSIONS + setOf("nfo", "jpg", "jpeg", "png")

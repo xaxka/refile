@@ -347,4 +347,130 @@ class TmdbMapperTest {
         assertThat(m.year).isEqualTo(2002)
         assertThat(m.originCountries).containsExactly("US")
     }
+
+    // ---- DVD 顺序 / episode_groups ----
+
+    @Test fun `dvdEpisodeGroupId picks type 3 group id`() {
+        val tv = TvDetail(
+            id = 1,
+            name = "X",
+            episodeGroups = EpisodeGroupsResponse(
+                results = listOf(
+                    EpisodeGroup(id = "air-date-group", name = "Air Date", type = 1),
+                    EpisodeGroup(id = "dvd-group-id", name = "DVD Order", type = 3),
+                    EpisodeGroup(id = "digital-group", name = "Digital", type = 4),
+                ),
+            ),
+        )
+        assertThat(TmdbMapper.dvdEpisodeGroupId(tv)).isEqualTo("dvd-group-id")
+    }
+
+    @Test fun `dvdEpisodeGroupId returns null when no dvd group`() {
+        val tv = TvDetail(
+            id = 1,
+            name = "X",
+            episodeGroups = EpisodeGroupsResponse(
+                results = listOf(
+                    EpisodeGroup(id = "air-date-group", type = 1),
+                    EpisodeGroup(id = "digital-group", type = 4),
+                ),
+            ),
+        )
+        assertThat(TmdbMapper.dvdEpisodeGroupId(tv)).isNull()
+    }
+
+    @Test fun `dvdEpisodeGroupId returns null when dvd group id blank`() {
+        val tv = TvDetail(
+            id = 1,
+            name = "X",
+            episodeGroups = EpisodeGroupsResponse(
+                results = listOf(EpisodeGroup(id = "", type = 3)),
+            ),
+        )
+        assertThat(TmdbMapper.dvdEpisodeGroupId(tv)).isNull()
+    }
+
+    @Test fun `tv info exposes dvdEpisodeGroupId when present`() {
+        val tv = TvDetail(
+            id = 1,
+            name = "X",
+            episodeGroups = EpisodeGroupsResponse(
+                results = listOf(EpisodeGroup(id = "dvd-group-id", type = 3)),
+            ),
+        )
+        val m = TmdbMapper.toMediaMetadata(tv, "zh-CN")
+        assertThat(m.info["dvdEpisodeGroupId"]).isEqualTo("dvd-group-id")
+    }
+
+    @Test fun `tv info omits dvdEpisodeGroupId when absent`() {
+        val tv = TvDetail(id = 1, name = "X")
+        val m = TmdbMapper.toMediaMetadata(tv, "zh-CN")
+        assertThat(m.info).doesNotContainKey("dvdEpisodeGroupId")
+    }
+
+    @Test fun `dvdOrderMap aligns original to dvd episode numbers by id`() {
+        // 季内原顺序：ep1(id=10) ep2(id=11) ep3(id=12)
+        val seasonEpisodes = listOf(
+            Episode(id = 10, episodeNumber = 1, name = "Pilot"),
+            Episode(id = 11, episodeNumber = 2, name = "Infected"),
+            Episode(id = 12, episodeNumber = 3, name = "Long Long Time"),
+        )
+        // DVD 顺序把 ep3 排到第 2 位（典型 DVD 重排场景）
+        val groupDetail = EpisodeGroupDetail(
+            id = "dvd-group-id",
+            groups = listOf(
+                EpisodeGroupChunk(
+                    id = "chunk1",
+                    episodes = listOf(
+                        Episode(id = 10, episodeNumber = 1), // ep1 仍第 1
+                        Episode(id = 12, episodeNumber = 2), // 原 ep3 → DVD 第 2
+                        Episode(id = 11, episodeNumber = 3), // 原 ep2 → DVD 第 3
+                    ),
+                ),
+            ),
+        )
+        val map = TmdbMapper.dvdOrderMap(seasonEpisodes, groupDetail)
+        assertThat(map["1"]).isEqualTo(1)
+        assertThat(map["2"]).isEqualTo(3)
+        assertThat(map["3"]).isEqualTo(2)
+    }
+
+    @Test fun `dvdOrderMap empty when no id overlap`() {
+        val seasonEpisodes = listOf(Episode(id = 10, episodeNumber = 1))
+        val groupDetail = EpisodeGroupDetail(
+            groups = listOf(
+                EpisodeGroupChunk(episodes = listOf(Episode(id = 999, episodeNumber = 1))),
+            ),
+        )
+        assertThat(TmdbMapper.dvdOrderMap(seasonEpisodes, groupDetail)).isEmpty()
+    }
+
+    @Test fun `dvdOrderMap skips episodes with id 0 or missing episodeNumber`() {
+        val seasonEpisodes = listOf(
+            Episode(id = 0, episodeNumber = 1), // id=0 视为缺失，跳过
+            Episode(id = 11, episodeNumber = 2),
+            Episode(id = 12, episodeNumber = null), // episodeNumber 缺失，跳过
+        )
+        val groupDetail = EpisodeGroupDetail(
+            groups = listOf(
+                EpisodeGroupChunk(
+                    episodes = listOf(
+                        Episode(id = 0, episodeNumber = 5),
+                        Episode(id = 11, episodeNumber = 9),
+                        Episode(id = 12, episodeNumber = null),
+                    ),
+                ),
+            ),
+        )
+        val map = TmdbMapper.dvdOrderMap(seasonEpisodes, groupDetail)
+        // 仅 id=11 的 episode 两端都有有效 episodeNumber，能匹配
+        assertThat(map).hasSize(1)
+        assertThat(map["2"]).isEqualTo(9)
+    }
+
+    @Test fun `dvdOrderMap empty when group has no episodes`() {
+        val seasonEpisodes = listOf(Episode(id = 10, episodeNumber = 1))
+        val groupDetail = EpisodeGroupDetail(groups = emptyList())
+        assertThat(TmdbMapper.dvdOrderMap(seasonEpisodes, groupDetail)).isEmpty()
+    }
 }

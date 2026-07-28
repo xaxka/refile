@@ -204,15 +204,19 @@ class FilenameParserTest {
         assertThat(parser.splitExtension("a.b.mkv")).isEqualTo("a.b" to "mkv")
         assertThat(parser.splitExtension("noext")).isEqualTo("noext" to "")
         assertThat(parser.splitExtension("hidden.dot")).isEqualTo("hidden" to "dot")
+        // strmlnk 为 7 字符，处于 splitExtension 长度上限边界，必须能正常切分。
+        assertThat(parser.splitExtension("Movie.strmlnk")).isEqualTo("Movie" to "strmlnk")
     }
 
     @Test fun `video extensions recognized`() {
-        listOf("mkv", "mp4", "m4v", "avi", "mov", "wmv", "flv", "ts", "m2ts", "webm", "mpg", "mpeg", "rmvb", "iso")
-            .forEach { assertThat(parser.videoExtensions).contains(it) }
+        listOf(
+            "mkv", "mp4", "m4v", "avi", "mov", "wmv", "flv", "ts", "m2ts", "webm", "mpg", "mpeg", "rmvb", "iso",
+            "mk3d", "mks", "mka", "ogm", "strm", "strmlnk",
+        ).forEach { assertThat(parser.videoExtensions).contains(it) }
     }
 
     @Test fun `subtitle extensions recognized`() {
-        listOf("srt", "ass", "ssa", "sub", "idx").forEach {
+        listOf("srt", "ass", "ssa", "sub", "idx", "sup", "vtt", "smi").forEach {
             assertThat(parser.subtitleExtensions).contains(it)
         }
     }
