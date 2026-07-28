@@ -124,9 +124,21 @@ class SettingsRepository @Inject constructor(
      *
      * 供 [xa.refile.core.rename.RenameExecutor.safeDelete] 使用：删除/覆盖前把文件移动到该目录
      * 而非物理删除（参考 tmm `deleteFileWithBackup`）。空串表示未配置（safeDelete 将直接返回 false）。
+     *
+     * 是否启用由 [trashEnabled] 独立控制：关闭后即使目录非空也不走回收站（safeDelete 视作未配置）。
      */
     val trashDir: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[KEY_TRASH_DIR] ?: DEFAULT_TRASH_DIR
+    }
+
+    /**
+     * WebDAV 回收站总开关，默认开启。
+     *
+     * 关闭后 [RenameWorker] 会把生效回收站目录置空，[RenameExecutor.safeDelete] 直接返回 false
+     * （即不移动到回收站，等同于不执行回收备份）。用户可在「设置 → 文件 → 启用回收站」切换。
+     */
+    val trashEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_TRASH_ENABLED] ?: true
     }
 
     /**
@@ -205,6 +217,13 @@ class SettingsRepository @Inject constructor(
         }
     }
 
+    /** 保存 WebDAV 回收站总开关。 */
+    suspend fun setTrashEnabled(value: Boolean) {
+        context.dataStore.edit {
+            it[KEY_TRASH_ENABLED] = value
+        }
+    }
+
     private companion object {
         const val DEFAULT_LANGUAGE = "zh-CN"
         val DEFAULT_PRESET = Preset.DEFAULT.name
@@ -220,6 +239,7 @@ class SettingsRepository @Inject constructor(
         private val KEY_PAD_DIGITS = intPreferencesKey("visual_pad_digits")
         private val KEY_CONFLICT_STRATEGY = stringPreferencesKey("conflict_strategy")
         private val KEY_TRASH_DIR = stringPreferencesKey("trash_dir")
+        private val KEY_TRASH_ENABLED = booleanPreferencesKey("trash_enabled")
     }
 }
 

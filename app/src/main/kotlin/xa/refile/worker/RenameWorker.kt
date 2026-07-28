@@ -79,9 +79,11 @@ class RenameWorker @AssistedInject constructor(
         ensureChannel()
         setForeground(buildForegroundInfo(batchName, 0, ops.size, ops.first()))
 
-        // Task 4.1 增强：从设置读取执行阶段冲突策略与回收站目录，注入 [RenameExecutor]。
+        // Task 4.1 增强：从设置读取执行阶段冲突策略与回收站配置，注入 [RenameExecutor]。
+        // 回收站总开关关闭时把生效目录置空，[RenameExecutor.safeDelete] 将直接返回 false（不执行回收备份）。
         val conflictStrategy = settings.conflictStrategy.first()
-        val trashDir = settings.trashDir.first()
+        val trashEnabled = settings.trashEnabled.first()
+        val trashDir = if (trashEnabled) settings.trashDir.first() else ""
         val executor = RenameExecutor(client, trashDir = trashDir)
         val report = try {
             executor.execute(ops, conflictStrategy = conflictStrategy) { current, total, op ->

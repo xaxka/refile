@@ -62,14 +62,15 @@ class RenameExecutor(
      * 执行批量重命名。
      *
      * @param operations       待执行的操作列表。
-     * @param onProgress       进度回调，参数为 (当前序号从 1 起, 总数, 当前操作)。
      * @param conflictStrategy 执行阶段冲突处理策略，默认 [ConflictStrategy.FAIL]。
+     * @param onProgress       进度回调，参数为 (当前序号从 1 起, 总数, 当前操作)；
+     *                         置于末位以支持尾随 lambda 调用形式。
      * @return 执行报告。
      */
     suspend fun execute(
         operations: List<RenameOperation>,
-        onProgress: (current: Int, total: Int, op: RenameOperation) -> Unit = { _, _, _ -> },
         conflictStrategy: ConflictStrategy = ConflictStrategy.FAIL,
+        onProgress: (current: Int, total: Int, op: RenameOperation) -> Unit = { _, _, _ -> },
     ): RenameReport {
         // 4.1.1 按目标路径深度升序，同级按字典序。
         val sorted = operations.sortedWith(
@@ -145,12 +146,13 @@ class RenameExecutor(
      * - [RenameResult.Partial]：主文件已成功，仅把失败的伴随文件拆为独立操作重试。
      *
      * @param conflictStrategy 重试时采用的冲突策略，默认 [ConflictStrategy.FAIL]。
+     * @param onProgress       进度回调；置于末位以支持尾随 lambda 调用形式。
      * @return 仅含重试条目的新报告（原成功条目不包含，由调用方按需合并）。
      */
     suspend fun retry(
         report: RenameReport,
-        onProgress: (current: Int, total: Int, op: RenameOperation) -> Unit = { _, _, _ -> },
         conflictStrategy: ConflictStrategy = ConflictStrategy.FAIL,
+        onProgress: (current: Int, total: Int, op: RenameOperation) -> Unit = { _, _, _ -> },
     ): RenameReport {
         val retryOps = mutableListOf<RenameOperation>()
         for ((op, result) in report.results) {
@@ -179,7 +181,7 @@ class RenameExecutor(
                 }
             }
         }
-        return execute(retryOps, onProgress, conflictStrategy)
+        return execute(retryOps, conflictStrategy, onProgress)
     }
 
     /**

@@ -37,6 +37,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -86,6 +87,7 @@ fun SettingsScreen(
     val openSourceNotices by viewModel.openSourceNotices.collectAsStateWithLifecycle()
     val conflictStrategy by viewModel.conflictStrategy.collectAsStateWithLifecycle()
     val trashDir by viewModel.trashDir.collectAsStateWithLifecycle()
+    val trashEnabled by viewModel.trashEnabled.collectAsStateWithLifecycle()
 
     var showConflictDialog by remember { mutableStateOf(false) }
     var showTrashDialog by remember { mutableStateOf(false) }
@@ -168,11 +170,24 @@ fun SettingsScreen(
                         subtitle = conflictStrategyLabel(conflictStrategy),
                         onClick = { showConflictDialog = true },
                     )
+                    // 回收站总开关：关闭后回收站目录项禁用，safeDelete 不执行回收备份。
+                    SwitchSettingsRow(
+                        icon = Icons.Default.DeleteOutline,
+                        title = "启用回收站",
+                        subtitle = if (trashEnabled) "删除/覆盖前移动到回收站目录" else "已关闭（不执行回收备份）",
+                        checked = trashEnabled,
+                        onCheckedChange = viewModel::setTrashEnabled,
+                    )
                     SettingsRow(
                         icon = Icons.Default.DeleteOutline,
                         title = "回收站目录",
-                        subtitle = if (trashDir.isBlank()) "未配置（物理删除）" else trashDir,
-                        onClick = { showTrashDialog = true },
+                        subtitle = when {
+                            !trashEnabled -> "已关闭"
+                            trashDir.isBlank() -> "未配置（物理删除）"
+                            else -> trashDir
+                        },
+                        onClick = { if (trashEnabled) showTrashDialog = true },
+                        enabled = trashEnabled,
                     )
                 }
             }
@@ -418,12 +433,63 @@ private fun SettingsRow(
     icon: ImageVector,
     title: String,
     subtitle: String? = null,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (enabled) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (enabled) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.Medium,
+            )
+            subtitle?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * 带开关的设置行（图标 + 标题 + 副标题 + 右侧 Switch）。
+ * 用于「启用回收站」等布尔开关项。
+ */
+@Composable
+private fun SwitchSettingsRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -448,10 +514,9 @@ private fun SettingsRow(
                 )
             }
         }
-        Icon(
-            imageVector = Icons.Default.ChevronRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
         )
     }
 }

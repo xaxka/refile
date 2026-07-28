@@ -101,6 +101,15 @@ class SettingsViewModel @Inject constructor(
     val trashDir: StateFlow<String> = settings.trashDir
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), DEFAULT_TRASH_DIR)
 
+    /**
+     * WebDAV 回收站总开关，默认开启。
+     *
+     * 关闭后 [xa.refile.worker.RenameWorker] 把生效回收站目录置空，safeDelete 不执行回收备份。
+     * 由「文件」分组下「启用回收站」开关控制；关闭时「回收站目录」项禁用。
+     */
+    val trashEnabled: StateFlow<Boolean> = settings.trashEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), true)
+
     /** 应用版本号（取自 PackageInfo；读取失败回退占位串）。 */
     val versionName: StateFlow<String> = MutableStateFlow(readVersionName()).asStateFlow()
 
@@ -148,6 +157,11 @@ class SettingsViewModel @Inject constructor(
     /** 保存 WebDAV 回收站目录到 DataStore（空串表示未配置）。 */
     fun setTrashDir(value: String) {
         viewModelScope.launch { settings.setTrashDir(value) }
+    }
+
+    /** 保存 WebDAV 回收站总开关。 */
+    fun setTrashEnabled(value: Boolean) {
+        viewModelScope.launch { settings.setTrashEnabled(value) }
     }
 
     /**
