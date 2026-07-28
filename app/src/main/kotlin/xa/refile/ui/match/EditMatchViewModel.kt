@@ -39,7 +39,7 @@ import javax.inject.Inject
  *
  * 剧集季选择：选定剧集后拉 TV 详情获取 [UiState.numberOfSeasons]，季选择器列出
  * 1..numberOfSeasons 供用户选择（避免猜错季号导致 404）。用户不选具体季（null=全部）时，
- * 保存时遍历所有季查找匹配集号。
+ * 合并加载所有季集列表供展示，保存时遍历查找匹配季。
  *
  * 安全：API Key 仅从 [SettingsRepository] 读取（经 [TmdbCacheRepository] 内部构造 TmdbClient），
  * 不进 UI 状态或日志。
@@ -126,7 +126,7 @@ class EditMatchViewModel @Inject constructor(
             s.copy(
                 currentMatch = fileMatch,
                 mediaType = type,
-                // 默认「全部季」（null）：仅拉取 numberOfSeasons 供季选择器展示，不加载具体集列表。
+                // 默认「全部季」（null）：拉取 numberOfSeasons 并合并加载所有季集列表。
                 seasonNumber = null,
                 selectedEpisodeNumbers = (matched?.episodeNumbers ?: fileMatch.parsed.episodes).toSet(),
                 selectedMedia = matched?.toMediaCandidate(type),
@@ -198,7 +198,7 @@ class EditMatchViewModel @Inject constructor(
      * 选定一个搜索候选；剧集则拉 TV 详情获取总季数并加载首季集列表。
      *
      * 季号初始值：文件名解析的季号（若 <= numberOfSeasons）否则 1；无解析季号时默认 1。
-     * 用户可在季选择器改为「全部」（null），保存时遍历所有季查找匹配集号。
+     * 用户可在季选择器改为「全部」（null），合并加载所有季集列表。
      *
      * 选定时把当前 [mediaSearchResults] 转入 [UiState.previousCandidates]，便于用户
      * 点击已选目标时回显「之前的匹配结果」而无需重新搜索。
@@ -213,7 +213,7 @@ class EditMatchViewModel @Inject constructor(
             )
         }
         if (candidate.mediaType == MediaType.EPISODE) {
-            // 默认「全部季」（null）：仅拉取 numberOfSeasons，不加载具体集列表。
+            // 默认「全部季」（null）：合并加载所有季集列表。
             loadTvDetails(candidate.tmdbId, null)
         }
     }
@@ -253,26 +253,29 @@ class EditMatchViewModel @Inject constructor(
         }
     }
 
-    /** 改变季号并重新加载集列表。传 null 表示「全部季」（不加载具体集列表，保存时遍历查找）。 */
+    /**
+     * 改变季号并重新加载集列表。
+     *
+     * 传 null 表示「全部季」：合并加载所有季的集列表（参考 BatchMatchViewModel.loadAllSeasons），
+     * 使集面板有数据可展示，而非空白。保存时仍由 [findSeasonContainingEpisodes] 遍历查找。
+     */
     fun setSeason(season: Int?) {
         val tvId = _uiState.value.selectedMedia?.tmdbId
             ?: _uiState.value.currentMatch?.matched?.id
             ?: _uiState.value.currentMatch?.matched?.tmdbId
             ?: return
         if (season == null) {
-            // 「全部季」：仅更新季号，不加载具体集列表。
-            _uiState.update { it.copy(seasonNumber = null, episodeList = emptyList()) }
-            return
+            loadAllSeasons(tvId, _uiState.value.numberOfSeasons)
+        } else {
+            loadSeason(tvId, season)
         }
-        loadSeason(tvId, season)
     }
 
     /**
      * 拉取 TV 详情获取 [UiState.numberOfSeasons]，再加载 [initialSeason] 的集列表。
      *
      * 先 getTv 拿总季数（供季选择器列出 1..numberOfSeasons），再 loadSeason 加载初始季。
-     * [initialSeason] 为 null（「全部季」）时仅更新 numberOfSeasons，不加载具体集列表，
-     * 保存时由 [buildEpisodeMetadata] 遍历所有季查找匹配集号。
+     * [initialSeason] 为 null（「全部季」）时调用 [loadAllSeasons] 合并加载所有季集列表。
      * getTv 失败时仍尝试加载初始季（降级）。
      */
     private fun loadTvDetails(tvId: Int, initialSeason: Int?) {
@@ -301,8 +304,8 @@ class EditMatchViewModel @Inject constructor(
                     )
                 }
                 if (safeSeason == null) {
-                    // 「全部季」：不加载具体集列表，保存时遍历查找
-                    _uiState.update { it.copy(loading = false) }
+                    // 「全部季」：合并加载所有季集列表（与 BatchMatch 一致）
+                    loadAllSeasons(tvId, total)
                 } else {
                     loadSeason(tvId, safeSeason)
                 }
@@ -328,6 +331,38 @@ class EditMatchViewModel @Inject constructor(
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 _uiState.update { it.copy(loading = false, error = t.message ?: "加载季失败") }
+            }
+        }
+    }
+
+    /**
+     * 加载所有季（1..[numberOfSeasons]）的集列表，合并为单一 [episodeList]。
+     *
+     * 参考 [BatchMatchViewModel.loadAllSeasons]：某季加载失败跳过，不影响其他季；
+     * 每集的 [EpisodeInfo.seasonNumber] 标记所属季，便于面板展示季前缀。
+     */
+    private fun loadAllSeasons(tvId: Int, numberOfSeasons: Int?) {
+        _uiState.update { it.copy(seasonNumber = null, loading = true, error = null) }
+        viewModelScope.launch {
+            try {
+                checkApiKeyOrError() ?: return@launch
+                val language = settings.language.first()
+                val total = numberOfSeasons ?: 1
+                val allEpisodes = mutableListOf<EpisodeInfo>()
+                for (season in 1..total) {
+                    val detail = runCatching {
+                        tmdbCache.getSeason(tvId, season, language)
+                    }.getOrNull() ?: continue
+                    detail.episodes.map { it.toEpisodeInfo() }.forEach { ep ->
+                        allEpisodes.add(ep.copy(seasonNumber = detail.seasonNumber ?: season))
+                    }
+                }
+                _uiState.update {
+                    it.copy(episodeList = allEpisodes, loading = false)
+                }
+            } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
+                _uiState.update { it.copy(loading = false, error = t.message ?: "加载所有季失败") }
             }
         }
     }

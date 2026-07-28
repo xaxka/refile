@@ -175,8 +175,8 @@ fun BatchMatchScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
-                // 标题后追加「应用 N 个文件」（原底部栏摘要文案上移简化）
-                title = { Text("批量匹配编辑 · 应用 ${state.boundCount} 个文件") },
+                // 标题：「批量匹配 · N」N 为已绑定文件数
+                title = { Text("批量匹配 · ${state.boundCount}") },
                 actions = {
                     IconButton(
                         onClick = { showApplyConfirm = true },
@@ -195,11 +195,6 @@ fun BatchMatchScreen(
                 canApply = canApply,
                 onSmartAssign = viewModel::smartAssignFromParsed,
                 onFillSequential = viewModel::fillSequential,
-                onUnbindAll = {
-                    if (state.bindings.isNotEmpty()) {
-                        pendingClearAction = { viewModel.unbindAll() }
-                    }
-                },
                 onApply = { showApplyConfirm = true },
             )
         },
@@ -210,12 +205,26 @@ fun BatchMatchScreen(
                 val numberOfSeasons = state.numberOfSeasons
 
                 if (selectedMedia != null && !reselectMode) {
-                    // ---- 正常模式：已选剧集卡（固定）+ 校验状态条 + 集位槽（滚动）----
+                    // ---- 正常模式：已选剧集卡（固定）+ 季选择器 + 校验状态条 + 集位槽（滚动）----
                     SelectedMediaSummary(
                         media = selectedMedia,
                         seasonNumber = state.seasonNumber,
                         onClick = { reselectMode = true },
                     )
+                    // 季选择器移至外页：用户无需进入重新选择模式即可切季。
+                    if (numberOfSeasons != null && selectedMedia.mediaType == MediaType.EPISODE) {
+                        SeasonSelectorRow(
+                            seasonNumber = state.seasonNumber,
+                            numberOfSeasons = numberOfSeasons,
+                            onSetSeason = { s ->
+                                if (state.bindings.isNotEmpty()) {
+                                    pendingClearAction = { viewModel.setSeason(s) }
+                                } else {
+                                    viewModel.setSeason(s)
+                                }
+                            },
+                        )
+                    }
                     ValidationStatusBar(state = state)
 
                     if (state.episodeList.isEmpty()) {
@@ -238,11 +247,10 @@ fun BatchMatchScreen(
                         )
                     }
                 } else {
-                    // ---- 重新选择模式 / 首次选择：搜索 + 候选 + 季选择器 ----
+                    // ---- 重新选择模式 / 首次选择：搜索 + 候选 ----
                     MediaReselectSection(
                         modifier = Modifier.weight(1f),
                         state = state,
-                        numberOfSeasons = numberOfSeasons,
                         onSearch = viewModel::searchMedia,
                         onSelect = { c ->
                             if (state.bindings.isNotEmpty()) {
@@ -253,13 +261,6 @@ fun BatchMatchScreen(
                             } else {
                                 viewModel.selectMedia(c)
                                 reselectMode = false
-                            }
-                        },
-                        onSetSeason = { s ->
-                            if (state.bindings.isNotEmpty()) {
-                                pendingClearAction = { viewModel.setSeason(s) }
-                            } else {
-                                viewModel.setSeason(s)
                             }
                         },
                     )
@@ -428,32 +429,20 @@ private fun SelectedMediaSummary(
 }
 
 /**
- * 重新选择视图：搜索框 + 候选列表 + 季选择器。
+ * 重新选择视图：搜索框 + 候选列表。
  *
- * 与 EditMatchScreen 的 MediaSearchSection 交互对齐：季选择器在此视图内，
- * 不在主页面。用户选了新候选即退出；点返回按钮（由外层 BackHandler 拦截）退出。
+ * 季选择器已移至主页面（正常模式下 SelectedMediaSummary 下方），此处仅负责
+ * 重新搜索/选择剧集。用户选了新候选即退出；点返回按钮（由外层 BackHandler 拦截）退出。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MediaReselectSection(
     modifier: Modifier = Modifier,
     state: BatchMatchViewModel.UiState,
-    numberOfSeasons: Int?,
     onSearch: (String) -> Unit,
     onSelect: (MediaCandidate) -> Unit,
-    onSetSeason: (Int?) -> Unit,
 ) {
     Column(modifier = modifier.padding(horizontal = PageMargin, vertical = 8.dp)) {
-        // 季选择器（已知总季数时展示，移入重新选择视图与搜索同区）
-        if (numberOfSeasons != null) {
-            SeasonSelectorRow(
-                seasonNumber = state.seasonNumber,
-                numberOfSeasons = numberOfSeasons,
-                onSetSeason = onSetSeason,
-            )
-            Spacer(Modifier.height(8.dp))
-        }
-
         // 搜索框
         OutlinedTextField(
             value = state.mediaSearchQuery,
@@ -1087,11 +1076,9 @@ private fun BatchBottomBar(
     canApply: Boolean,
     onSmartAssign: () -> Unit,
     onFillSequential: () -> Unit,
-    onUnbindAll: () -> Unit,
     onApply: () -> Unit,
 ) {
-    // 智能 / 顺序 / 解绑 三按钮原位于批量工具条，现按需求移到底部栏「应用」按钮左侧。
-    // 摘要文案已上移到 TopAppBar 标题，这里不再展示。
+    // 智能 / 顺序 两按钮 + 应用按钮。文字单行展示，避免换行。
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1103,17 +1090,12 @@ private fun BatchBottomBar(
             onClick = onSmartAssign,
             enabled = hasEpisodeList && !loading,
             modifier = Modifier.weight(1f),
-        ) { Text("智能", style = MaterialTheme.typography.labelMedium) }
+        ) { Text("智能", style = MaterialTheme.typography.labelMedium, maxLines = 1) }
         FilledTonalButton(
             onClick = onFillSequential,
             enabled = hasEpisodeList && !loading,
             modifier = Modifier.weight(1f),
-        ) { Text("顺序", style = MaterialTheme.typography.labelMedium) }
-        FilledTonalButton(
-            onClick = onUnbindAll,
-            enabled = hasEpisodeList && !loading,
-            modifier = Modifier.weight(1f),
-        ) { Text("解绑", style = MaterialTheme.typography.labelMedium) }
+        ) { Text("顺序", style = MaterialTheme.typography.labelMedium, maxLines = 1) }
         Button(
             onClick = onApply,
             enabled = canApply,
@@ -1121,7 +1103,7 @@ private fun BatchBottomBar(
         ) {
             Icon(Icons.Default.Check, contentDescription = null)
             Spacer(Modifier.width(6.dp))
-            Text("应用")
+            Text("应用", maxLines = 1)
         }
     }
 }

@@ -70,16 +70,19 @@ fun EpisodesPanel(
                 )
             }
         } else {
+            // 全部季模式下不同季可能有相同集号，key 需含 seasonNumber 避免冲突。
+            val multiSeasons = episodes.map { it.seasonNumber }.distinct().size > 1
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 header?.invoke(this)
-                items(episodes, key = { it.episodeNumber }) { ep ->
+                items(episodes, key = { "${it.seasonNumber}_${it.episodeNumber}" }) { ep ->
                     val isSelected = ep.episodeNumber in selected
                     EpisodeRow(
                         episode = ep,
                         selected = isSelected,
+                        showSeasonPrefix = multiSeasons,
                         onClick = { onToggle(ep.episodeNumber) },
                     )
                     HorizontalDivider()
@@ -94,6 +97,7 @@ private fun EpisodeRow(
     episode: EditMatchViewModel.EpisodeInfo,
     selected: Boolean,
     onClick: () -> Unit,
+    showSeasonPrefix: Boolean = false,
 ) {
     val bg = if (selected) {
         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
@@ -121,8 +125,13 @@ private fun EpisodeRow(
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                val label = if (showSeasonPrefix) {
+                    "S${"%02d".format(episode.seasonNumber)}E${"%02d".format(episode.episodeNumber)}"
+                } else {
+                    "E${"%02d".format(episode.episodeNumber)}"
+                }
                 Text(
-                    text = "E${"%02d".format(episode.episodeNumber)}",
+                    text = label,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
