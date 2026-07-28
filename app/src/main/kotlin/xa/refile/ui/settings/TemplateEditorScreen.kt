@@ -43,11 +43,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import xa.refile.R
 import xa.refile.data.prefs.VisualOptions
 import xa.refile.ui.theme.WarningAmber
 import kotlinx.coroutines.launch
@@ -84,16 +86,20 @@ fun TemplateEditorScreen(
         TemplateEditorViewModel.EditorTab.EPISODE -> episodeField
     }
 
+    val savedMsg = stringResource(R.string.template_editor_saved)
+    val saveFailedPrefix = stringResource(R.string.template_editor_save_failed_prefix)
+    val unknownErrorMsg = stringResource(R.string.template_editor_unknown_error)
+
     val save: () -> Unit = {
         if (!isSaving) {
             isSaving = true
             scope.launch {
                 try {
                     viewModel.save()
-                    snackbarHostState.showSnackbar("已保存")
+                    snackbarHostState.showSnackbar(savedMsg)
                 } catch (e: Exception) {
                     if (e is kotlin.coroutines.cancellation.CancellationException) throw e
-                    snackbarHostState.showSnackbar("保存失败：${e.message ?: "未知错误"}")
+                    snackbarHostState.showSnackbar(saveFailedPrefix + (e.message ?: unknownErrorMsg))
                 } finally {
                     isSaving = false
                 }
@@ -108,15 +114,15 @@ fun TemplateEditorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("模板编辑器") },
+                title = { Text(stringResource(R.string.template_editor_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
                 actions = {
                     IconButton(onClick = save, enabled = !isSaving) {
-                        Icon(Icons.Default.Save, contentDescription = "保存")
+                        Icon(Icons.Default.Save, contentDescription = stringResource(R.string.common_save))
                     }
                 },
             )
@@ -134,10 +140,14 @@ fun TemplateEditorScreen(
             // 测试反馈 Item 9：电影/剧集模板分 Tab 编辑
             TabRow(selectedTabIndex = activeTab.ordinal) {
                 TemplateEditorViewModel.EditorTab.entries.forEach { tab ->
+                    val tabLabel = when (tab) {
+                        TemplateEditorViewModel.EditorTab.MOVIE -> stringResource(R.string.template_editor_tab_movie)
+                        TemplateEditorViewModel.EditorTab.EPISODE -> stringResource(R.string.template_editor_tab_episode)
+                    }
                     Tab(
                         selected = activeTab == tab,
                         onClick = { viewModel.selectTab(tab) },
-                        text = { Text(tab.label) },
+                        text = { Text(tabLabel) },
                     )
                 }
             }
@@ -148,12 +158,16 @@ fun TemplateEditorScreen(
                 activeTab = activeTab,
             )
 
+            val activeTabLabel = when (activeTab) {
+                TemplateEditorViewModel.EditorTab.MOVIE -> stringResource(R.string.template_editor_tab_movie)
+                TemplateEditorViewModel.EditorTab.EPISODE -> stringResource(R.string.template_editor_tab_episode)
+            }
             OutlinedTextField(
                 value = currentField,
                 onValueChange = viewModel::updateTemplate,
-                label = { Text("${activeTab.label}字符串") },
+                label = { Text(stringResource(R.string.template_editor_template_label, activeTabLabel)) },
                 supportingText = {
-                    Text("变量用 {n} {y} {s00e00} 等（对齐 FileBot），管道 {n|upper} 或链式 {n.upper()}，路径用 / 分段，日期 {d|format('yyyy.MM.dd')}")
+                    Text(stringResource(R.string.template_editor_supporting_text))
                 },
                 textStyle = MaterialTheme.typography.bodyLarge.copy(
                     fontFamily = FontFamily.Monospace,
@@ -188,9 +202,9 @@ fun TemplateEditorScreen(
                         color = MaterialTheme.colorScheme.onPrimary,
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("保存中...")
+                    Text(stringResource(R.string.common_saving))
                 } else {
-                    Text("保存")
+                    Text(stringResource(R.string.common_save))
                 }
             }
 
@@ -198,7 +212,7 @@ fun TemplateEditorScreen(
                 onClick = reset,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("重置为默认规则")
+                Text(stringResource(R.string.template_editor_reset_default))
             }
         }
     }
@@ -217,7 +231,7 @@ private fun VariableChips(
     onInsert: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("插入变量", style = MaterialTheme.typography.labelLarge)
+        Text(stringResource(R.string.template_editor_insert_variable), style = MaterialTheme.typography.labelLarge)
         val grouped = tokens.groupBy { it.group }
         grouped.forEach { (group, items) ->
             Text(
@@ -251,11 +265,11 @@ private fun VisualOptionsSection(
     onUpdate: (VisualOptions) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("可视化选项", style = MaterialTheme.typography.labelLarge)
+        Text(stringResource(R.string.template_editor_visual_options), style = MaterialTheme.typography.labelLarge)
 
         // 补零位数
         Text(
-            "补零位数：${options.padDigits}",
+            stringResource(R.string.template_editor_pad_digits, options.padDigits),
             style = MaterialTheme.typography.labelMedium,
         )
         Slider(
@@ -287,13 +301,13 @@ private fun PreviewCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("实时预览", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.template_editor_live_preview), style = MaterialTheme.typography.titleSmall)
 
             when (activeTab) {
                 TemplateEditorViewModel.EditorTab.MOVIE ->
-                    PreviewItem(label = "电影示例", value = preview.movie)
+                    PreviewItem(label = stringResource(R.string.template_editor_movie_example), value = preview.movie)
                 TemplateEditorViewModel.EditorTab.EPISODE ->
-                    PreviewItem(label = "剧集示例", value = preview.episode)
+                    PreviewItem(label = stringResource(R.string.template_editor_episode_example), value = preview.episode)
             }
 
             if (preview.warnings.isNotEmpty()) {
@@ -319,7 +333,7 @@ private fun PreviewItem(label: String, value: String) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            text = value.ifBlank { "（空）" },
+            text = value.ifBlank { stringResource(R.string.template_editor_empty) },
             style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
             color = MaterialTheme.colorScheme.onSurface,
         )

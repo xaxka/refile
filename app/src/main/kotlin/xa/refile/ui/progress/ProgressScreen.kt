@@ -47,12 +47,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import xa.refile.R
 import xa.refile.core.rename.RenameOperation
 import xa.refile.core.rename.RenameReport
 import xa.refile.core.rename.RenameResult
@@ -116,7 +118,7 @@ fun ProgressScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = if (isFinished) "重命名完成" else "重命名进行中",
+                        text = if (isFinished) stringResource(R.string.progress_done) else stringResource(R.string.progress_in_progress),
                         style = MaterialTheme.typography.headlineMedium,
                     )
                 },
@@ -130,7 +132,7 @@ fun ProgressScreen(
                         .padding(16.dp),
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    OutlinedButton(onClick = { viewModel.cancelWork() }) { Text("取消") }
+                    OutlinedButton(onClick = { viewModel.cancelWork() }) { Text(stringResource(R.string.common_cancel)) }
                 }
             } else {
                 ResultButtons(
@@ -194,12 +196,12 @@ private fun RunningContent(
             // 尚未观察到 WorkInfo，或 Worker 还未上报进度 → 不确定进度。
             CircularProgressIndicator()
             Spacer(Modifier.height(16.dp))
-            Text("正在准备…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.progress_preparing), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            Text("重命名进行中", style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.progress_in_progress), style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "$current / $total",
+                text = stringResource(R.string.progress_ratio, current, total),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -244,7 +246,7 @@ private fun ResultContent(
             item { StatsCard(report) }
             val failedOps = report.failedOperations
             if (failedOps.isNotEmpty()) {
-                item { SectionHeader("失败项", failedOps.size, ErrorRed) }
+                item { SectionHeader(stringResource(R.string.progress_failed_items), failedOps.size, ErrorRed) }
                 items(failedOps, key = { it.first.sourcePath }) { (op, failed) ->
                     FailedItemRow(
                         sourcePath = op.sourcePath,
@@ -273,19 +275,19 @@ private fun ResultHeader(resultKind: ResultKind, errorMessage: String?) {
     val title: String
     when (resultKind) {
         ResultKind.ALL_SUCCESS -> {
-            icon = Icons.Filled.CheckCircle; color = SuccessGreen; title = "全部重命名成功"
+            icon = Icons.Filled.CheckCircle; color = SuccessGreen; title = stringResource(R.string.progress_all_success)
         }
         ResultKind.PARTIAL_FAILURE -> {
-            icon = Icons.Filled.Warning; color = WarningAmber; title = "部分重命名失败"
+            icon = Icons.Filled.Warning; color = WarningAmber; title = stringResource(R.string.progress_partial_failure)
         }
         ResultKind.ALL_FAILURE -> {
-            icon = Icons.Filled.Error; color = ErrorRed; title = "全部重命名失败"
+            icon = Icons.Filled.Error; color = ErrorRed; title = stringResource(R.string.progress_all_failure)
         }
         ResultKind.CANCELLED -> {
-            icon = Icons.Filled.Cancel; color = TextSecondary; title = "任务已取消"
+            icon = Icons.Filled.Cancel; color = TextSecondary; title = stringResource(R.string.progress_cancelled)
         }
         ResultKind.ERROR -> {
-            icon = Icons.Filled.Error; color = ErrorRed; title = "任务执行出错"
+            icon = Icons.Filled.Error; color = ErrorRed; title = stringResource(R.string.progress_error)
         }
     }
     Column(
@@ -320,9 +322,9 @@ private fun StatsCard(report: RenameReport) {
                 .padding(16.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
-            StatCell("成功", report.succeeded, SuccessGreen)
-            StatCell("失败", report.failed, ErrorRed)
-            StatCell("跳过", skipped, TextSecondary)
+            StatCell(stringResource(R.string.progress_stat_success), report.succeeded, SuccessGreen)
+            StatCell(stringResource(R.string.progress_stat_failed), report.failed, ErrorRed)
+            StatCell(stringResource(R.string.progress_stat_skipped), skipped, TextSecondary)
         }
     }
 }
@@ -401,7 +403,7 @@ private fun SkippedSection(skipped: List<Pair<RenameOperation, RenameResult.Skip
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "跳过项 (${skipped.size})",
+                text = stringResource(R.string.progress_skipped_items, skipped.size),
                 style = MaterialTheme.typography.titleSmall,
                 color = TextSecondary,
                 fontWeight = FontWeight.SemiBold,
@@ -409,7 +411,7 @@ private fun SkippedSection(skipped: List<Pair<RenameOperation, RenameResult.Skip
             )
             Icon(
                 imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                contentDescription = if (expanded) "收起" else "展开",
+                contentDescription = if (expanded) stringResource(R.string.progress_collapse) else stringResource(R.string.progress_expand),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -447,8 +449,8 @@ private fun ResultButtons(
         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
     ) {
         if (hasFailures) {
-            Button(onClick = onRetry) { Text("重试失败项") }
+            Button(onClick = onRetry) { Text(stringResource(R.string.progress_retry_failed)) }
         }
-        OutlinedButton(onClick = onBackHome) { Text("返回首页") }
+        OutlinedButton(onClick = onBackHome) { Text(stringResource(R.string.progress_back_home)) }
     }
 }

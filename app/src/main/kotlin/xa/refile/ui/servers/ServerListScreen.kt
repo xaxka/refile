@@ -44,11 +44,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import xa.refile.R
 import xa.refile.data.db.ServerConfigEntity
 
 /**
@@ -80,13 +82,22 @@ fun ServerListScreen(
                 title = {},
                 actions = {
                     IconButton(onClick = onAddServer) {
-                        Icon(Icons.Default.Add, contentDescription = "添加服务器")
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = stringResource(R.string.server_list_add_server),
+                        )
                     }
                     IconButton(onClick = onOpenHistory) {
-                        Icon(Icons.Default.History, contentDescription = "历史记录")
+                        Icon(
+                            Icons.Default.History,
+                            contentDescription = stringResource(R.string.common_history),
+                        )
                     }
                     IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "设置")
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = stringResource(R.string.common_settings),
+                        )
                     }
                 },
             )
@@ -108,7 +119,7 @@ fun ServerListScreen(
                     )
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        text = "还没有服务器，点击右上角添加",
+                        text = stringResource(R.string.server_list_empty),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -136,18 +147,23 @@ fun ServerListScreen(
     pendingDeleteId?.let { id ->
         AlertDialog(
             onDismissRequest = { pendingDeleteId = null },
-            title = { Text("删除服务器") },
-            text = { Text("确定删除该服务器配置吗？此操作不可撤销。") },
+            title = { Text(stringResource(R.string.server_list_delete_title)) },
+            text = { Text(stringResource(R.string.server_list_delete_confirm)) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.deleteServer(id)
                     pendingDeleteId = null
                 }) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
+                    Text(
+                        stringResource(R.string.common_delete),
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDeleteId = null }) { Text("取消") }
+                TextButton(onClick = { pendingDeleteId = null }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
             },
         )
     }
@@ -220,7 +236,7 @@ private fun ServerRow(
                     onDismissRequest = { menuExpanded = false },
                 ) {
                     DropdownMenuItem(
-                        text = { Text("编辑") },
+                        text = { Text(stringResource(R.string.common_edit)) },
                         leadingIcon = {
                             Icon(
                                 Icons.Default.Edit,
@@ -234,7 +250,7 @@ private fun ServerRow(
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("删除") },
+                        text = { Text(stringResource(R.string.common_delete)) },
                         leadingIcon = {
                             Icon(
                                 Icons.Default.Delete,

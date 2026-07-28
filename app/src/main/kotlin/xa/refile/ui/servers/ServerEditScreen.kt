@@ -38,12 +38,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import xa.refile.R
 import xa.refile.ui.theme.SuccessGreen
 import kotlinx.coroutines.launch
 
@@ -74,6 +76,7 @@ fun ServerEditScreen(
     val scope = rememberCoroutineScope()
     var passwordVisible by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<String?>(null) }
+    val saveFailedMsg = stringResource(R.string.server_edit_save_failed)
 
     LaunchedEffect(serverId) {
         viewModel.load(serverId)
@@ -82,12 +85,12 @@ fun ServerEditScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (uiState.isEditing) "编辑服务器" else "添加服务器") },
+                title = { Text(if (uiState.isEditing) stringResource(R.string.server_edit_title_edit) else stringResource(R.string.server_edit_title_add)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "返回",
+                            contentDescription = stringResource(R.string.common_back),
                         )
                     }
                 },
@@ -105,17 +108,17 @@ fun ServerEditScreen(
             OutlinedTextField(
                 value = uiState.name,
                 onValueChange = viewModel::updateName,
-                label = { Text("别名") },
+                label = { Text(stringResource(R.string.server_edit_alias)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
                 value = uiState.baseUrl,
                 onValueChange = viewModel::updateBaseUrl,
-                label = { Text("完整 URL（如 https://dav.example.com:8443/dav）") },
+                label = { Text(stringResource(R.string.server_edit_url_label)) },
                 singleLine = true,
                 supportingText = {
-                    Text("包含协议、主机、端口与路径；不再单独配置端口/根路径")
+                    Text(stringResource(R.string.server_edit_url_supporting))
                 },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
@@ -123,14 +126,14 @@ fun ServerEditScreen(
             OutlinedTextField(
                 value = uiState.username,
                 onValueChange = viewModel::updateUsername,
-                label = { Text("用户名（必填，不支持匿名访问）") },
+                label = { Text(stringResource(R.string.server_edit_username)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
                 value = uiState.password,
                 onValueChange = viewModel::updatePassword,
-                label = { Text(if (uiState.isEditing) "密码（留空保留原密码）" else "密码") },
+                label = { Text(if (uiState.isEditing) stringResource(R.string.server_edit_password_edit) else stringResource(R.string.server_edit_password)) },
                 singleLine = true,
                 visualTransformation = if (passwordVisible) {
                     VisualTransformation.None
@@ -140,9 +143,9 @@ fun ServerEditScreen(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 trailingIcon = {
                     val (icon, desc) = if (passwordVisible) {
-                        Icons.Default.Visibility to "隐藏密码"
+                        Icons.Default.Visibility to stringResource(R.string.server_edit_hide_password)
                     } else {
-                        Icons.Default.VisibilityOff to "显示密码"
+                        Icons.Default.VisibilityOff to stringResource(R.string.server_edit_show_password)
                     }
                     IconButton(onClick = { passwordVisible = !passwordVisible }) {
                         Icon(icon, contentDescription = desc)
@@ -151,13 +154,17 @@ fun ServerEditScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Text("认证方式", style = MaterialTheme.typography.bodyLarge)
+            Text(stringResource(R.string.server_edit_auth_type), style = MaterialTheme.typography.bodyLarge)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                listOf("auto" to "自动", "basic" to "Basic", "digest" to "Digest").forEach { (value, label) ->
+                listOf(
+                    "auto" to stringResource(R.string.match_type_auto),
+                    "basic" to "Basic",
+                    "digest" to "Digest",
+                ).forEach { (value, label) ->
                     FilterChip(
                         selected = uiState.authType == value,
                         onClick = { viewModel.updateAuthType(value) },
@@ -178,9 +185,9 @@ fun ServerEditScreen(
                         color = MaterialTheme.colorScheme.onPrimary,
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("测试中...")
+                    Text(stringResource(R.string.server_edit_testing))
                 } else {
-                    Text("测试连接")
+                    Text(stringResource(R.string.server_edit_test_connection))
                 }
             }
 
@@ -238,7 +245,7 @@ fun ServerEditScreen(
                             onSaved(id)
                         } catch (e: Exception) {
                             if (e is kotlin.coroutines.cancellation.CancellationException) throw e
-                            saveError = e.message ?: "保存失败"
+                            saveError = e.message ?: saveFailedMsg
                         }
                     }
                 },
@@ -252,9 +259,9 @@ fun ServerEditScreen(
                         color = MaterialTheme.colorScheme.onPrimary,
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("保存中...")
+                    Text(stringResource(R.string.common_saving))
                 } else {
-                    Text("保存")
+                    Text(stringResource(R.string.common_save))
                 }
             }
         }

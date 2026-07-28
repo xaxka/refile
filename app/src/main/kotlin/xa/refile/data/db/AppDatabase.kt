@@ -10,8 +10,10 @@ import androidx.room.RoomDatabase
  *
  * v2 变更（Task 5.1.1）：新增 rename_batches / rename_entries 两表。
  * v3 变更（Task 2.3.4）：新增 tmdb_cache 表（TMDB 详情响应缓存，减少限流压力）。
- * 用 [fallbackToDestructiveMigration]（在 [xa.refile.data.DatabaseModule] 内配置）
- * 简化开发期迁移，bump version 后旧库直接重建。
+ *
+ * 迁移策略（Task 19）：正式 [androidx.room.migration.Migration]（v1→v2、v2→v3）注册在
+ * [xa.refile.data.DatabaseModule]；release 走正式迁移不再清空用户数据，仅 debug 保留
+ * [androidx.room.RoomDatabase.Builder.fallbackToDestructiveMigration] 作为开发期改 schema 兜底。
  *
  * `exportSchema = false`：开发期简化，不导出 schema JSON。
  */

@@ -51,12 +51,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import xa.refile.R
 import xa.refile.data.db.RenameBatchEntity
 import xa.refile.data.db.RenameEntryEntity
 import xa.refile.ui.common.EmptyState
@@ -117,12 +119,12 @@ fun HistoryScreen(
                             onBack()
                         }
                     }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
                 title = {
                     Text(
-                        text = if (current != null) "批次详情" else "历史记录",
+                        text = if (current != null) stringResource(R.string.history_batch_detail) else stringResource(R.string.common_history),
                         style = MaterialTheme.typography.headlineMedium,
                     )
                 },
@@ -160,9 +162,9 @@ fun HistoryScreen(
     pendingRevertBatchId?.let { id ->
         AlertDialog(
             onDismissRequest = { pendingRevertBatchId = null },
-            title = { Text("撤销整批") },
+            title = { Text(stringResource(R.string.history_revert_batch)) },
             text = {
-                Text("将按反向顺序把目标路径移回原路径。中途失败会继续尝试剩余，并在完成后提示「已回滚 N/M 条」。确定撤销？")
+                Text(stringResource(R.string.history_revert_confirm_text))
             },
             confirmButton = {
                 TextButton(
@@ -172,11 +174,11 @@ fun HistoryScreen(
                         pendingRevertBatchId = null
                     },
                 ) {
-                    Text("撤销", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.history_revert), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { pendingRevertBatchId = null }) { Text("取消") }
+                TextButton(onClick = { pendingRevertBatchId = null }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -200,8 +202,8 @@ private fun BatchListContent(
         ) {
             EmptyState(
                 icon = Icons.Filled.History,
-                title = "暂无历史",
-                subtitle = "重命名后会在此显示",
+                title = stringResource(R.string.history_empty_title),
+                subtitle = stringResource(R.string.history_empty_subtitle),
             )
         }
         return
@@ -263,7 +265,7 @@ private fun BatchCard(
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "服务器：${batch.serverName}",
+                text = stringResource(R.string.history_server_name, batch.serverName),
                 style = MaterialTheme.typography.bodySmall,
                 color = if (batch.isReverted) TextDisabled else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -277,12 +279,12 @@ private fun BatchCard(
             )
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                StatText("成功", batch.succeededCount, SuccessGreen, disabled = batch.isReverted)
+                StatText(stringResource(R.string.history_stat_success), batch.succeededCount, SuccessGreen, disabled = batch.isReverted)
                 Spacer(Modifier.width(16.dp))
-                StatText("失败", batch.failedCount, ErrorRed, disabled = batch.isReverted)
+                StatText(stringResource(R.string.history_stat_failed), batch.failedCount, ErrorRed, disabled = batch.isReverted)
                 Spacer(Modifier.width(16.dp))
                 StatText(
-                    "总计",
+                    stringResource(R.string.history_stat_total),
                     batch.totalOperations,
                     if (batch.isReverted) TextDisabled else TextSecondary,
                     disabled = batch.isReverted,
@@ -307,7 +309,7 @@ private fun RevertedChip() {
         )
         Spacer(Modifier.width(4.dp))
         Text(
-            text = "已撤销",
+            text = stringResource(R.string.history_reverted),
             style = MaterialTheme.typography.labelMedium,
             color = TextDisabled,
         )
@@ -344,7 +346,7 @@ private fun BatchDetailContent(
         item { BatchSummaryCard(batch) }
         item {
             Text(
-                text = "条目 (${entries.size})",
+                text = stringResource(R.string.history_entries_count, entries.size),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontWeight = FontWeight.SemiBold,
@@ -374,31 +376,31 @@ private fun BatchSummaryCard(batch: RenameBatchEntity) {
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "服务器：${batch.serverName}",
+                text = stringResource(R.string.history_server_name, batch.serverName),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = "时间：${formatTimestamp(batch.createdAt)}",
+                text = stringResource(R.string.history_time, formatTimestamp(batch.createdAt)),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (batch.isReverted && batch.revertedAt != null) {
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "撤销于：${formatTimestamp(batch.revertedAt)}",
+                    text = stringResource(R.string.history_reverted_at, formatTimestamp(batch.revertedAt)),
                     style = MaterialTheme.typography.bodySmall,
                     color = TextDisabled,
                 )
             }
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                StatText("成功", batch.succeededCount, SuccessGreen, disabled = false)
+                StatText(stringResource(R.string.history_stat_success), batch.succeededCount, SuccessGreen, disabled = false)
                 Spacer(Modifier.width(16.dp))
-                StatText("失败", batch.failedCount, ErrorRed, disabled = false)
+                StatText(stringResource(R.string.history_stat_failed), batch.failedCount, ErrorRed, disabled = false)
                 Spacer(Modifier.width(16.dp))
-                StatText("总计", batch.totalOperations, TextSecondary, disabled = false)
+                StatText(stringResource(R.string.history_stat_total), batch.totalOperations, TextSecondary, disabled = false)
             }
         }
     }
@@ -442,7 +444,7 @@ private fun EntryRow(entry: RenameEntryEntity, status: EntryStatus, disabled: Bo
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = "→ ${entry.targetPath}",
+                text = stringResource(R.string.history_arrow_target, entry.targetPath),
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
                 color = if (disabled) TextDisabled else MaterialTheme.colorScheme.primary,
@@ -506,7 +508,7 @@ private fun RevertButtons(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "撤销中 $current / $total",
+                    text = stringResource(R.string.history_reverting, current, total),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -521,7 +523,7 @@ private fun RevertButtons(
                 onClick = onRevert,
                 enabled = !batch.isReverted && !reverting,
             ) {
-                Text(if (batch.isReverted) "已撤销" else "撤销整批")
+                Text(if (batch.isReverted) stringResource(R.string.history_reverted) else stringResource(R.string.history_revert_batch))
             }
         }
     }

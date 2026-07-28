@@ -29,7 +29,7 @@ import javax.inject.Inject
  *
  * TMDB 反代同步：[onCreate] 启动一个应用级协程观察 [SettingsRepository.tmdbProxyUrl]，
  * 把最新值写入 [TmdbImages.proxyUrl]，使图片请求跟随反代设置（API 请求由
- * [xa.refile.data.repository.TmdbCacheRepository] 构造 client 时读取同源设置）。
+ * [xa.refile.data.repository.TmdbClientProvider] 构造 client 时读取同源设置）。
  */
 @HiltAndroidApp
 class RefileApp : Application(), Configuration.Provider {

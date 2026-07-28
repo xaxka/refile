@@ -1,6 +1,8 @@
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.detekt)
+    alias(libs.plugins.ktlint)
 }
 
 java {
@@ -10,6 +12,12 @@ java {
 
 kotlin {
     jvmToolchain(17)
+}
+
+detekt {
+    buildUponDefaultConfig = true
+    config.setFrom(rootProject.files("config/detekt/detekt.yml"))
+    parallel = true
 }
 
 dependencies {

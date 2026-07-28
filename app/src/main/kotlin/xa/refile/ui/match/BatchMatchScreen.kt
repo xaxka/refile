@@ -64,12 +64,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import xa.refile.R
 import xa.refile.core.model.MediaType
 import xa.refile.ui.match.BatchMatchViewModel.SlotKey
 import xa.refile.ui.match.EditMatchViewModel.EpisodeInfo
@@ -172,17 +174,17 @@ fun BatchMatchScreen(
                             onBack()
                         }
                     }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
                 // 标题：「批量匹配 · N」N 为已绑定文件数
-                title = { Text("批量匹配 · ${state.boundCount}") },
+                title = { Text(stringResource(R.string.batch_match_title, state.boundCount)) },
                 actions = {
                     IconButton(
                         onClick = { showApplyConfirm = true },
                         enabled = canApply,
                     ) {
-                        Icon(Icons.Default.Check, contentDescription = "应用")
+                        Icon(Icons.Default.Check, contentDescription = stringResource(R.string.batch_match_apply))
                     }
                 },
             )
@@ -233,7 +235,7 @@ fun BatchMatchScreen(
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
-                                text = "请等待集列表加载…",
+                                text = stringResource(R.string.batch_match_wait_episodes),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -279,16 +281,16 @@ fun BatchMatchScreen(
     if (showDiscardConfirm) {
         AlertDialog(
             onDismissRequest = { showDiscardConfirm = false },
-            title = { Text("放弃修改？") },
-            text = { Text("当前有未应用的修改，确认放弃并返回？") },
+            title = { Text(stringResource(R.string.batch_match_discard_title)) },
+            text = { Text(stringResource(R.string.batch_match_discard_text)) },
             confirmButton = {
                 TextButton(onClick = {
                     showDiscardConfirm = false
                     onBack()
-                }) { Text("放弃") }
+                }) { Text(stringResource(R.string.batch_match_discard)) }
             },
             dismissButton = {
-                TextButton(onClick = { showDiscardConfirm = false }) { Text("继续编辑") }
+                TextButton(onClick = { showDiscardConfirm = false }) { Text(stringResource(R.string.batch_match_continue_edit)) }
             },
         )
     }
@@ -296,16 +298,16 @@ fun BatchMatchScreen(
     if (showApplyConfirm) {
         AlertDialog(
             onDismissRequest = { showApplyConfirm = false },
-            title = { Text("应用批量修改") },
+            title = { Text(stringResource(R.string.batch_match_apply_title)) },
             text = { Text(state.summaryText) },
             confirmButton = {
                 TextButton(onClick = {
                     showApplyConfirm = false
                     viewModel.batchApply()
-                }) { Text("应用") }
+                }) { Text(stringResource(R.string.batch_match_apply)) }
             },
             dismissButton = {
-                TextButton(onClick = { showApplyConfirm = false }) { Text("取消") }
+                TextButton(onClick = { showApplyConfirm = false }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -313,16 +315,16 @@ fun BatchMatchScreen(
     pendingClearAction?.let { action ->
         AlertDialog(
             onDismissRequest = { pendingClearAction = null },
-            title = { Text("清空全部绑定？") },
-            text = { Text("此操作将清空当前所有集位绑定，确定继续？") },
+            title = { Text(stringResource(R.string.batch_match_clear_bindings_title)) },
+            text = { Text(stringResource(R.string.batch_match_clear_bindings_text)) },
             confirmButton = {
                 TextButton(onClick = {
                     action()
                     pendingClearAction = null
-                }) { Text("清空") }
+                }) { Text(stringResource(R.string.batch_match_clear)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingClearAction = null }) { Text("取消") }
+                TextButton(onClick = { pendingClearAction = null }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -375,6 +377,8 @@ private fun SelectedMediaSummary(
     seasonNumber: Int?,
     onClick: () -> Unit,
 ) {
+    val typeLabel = if (media.mediaType == MediaType.EPISODE) stringResource(R.string.match_type_tv) else stringResource(R.string.match_type_movie)
+    val seasonLabel = if (seasonNumber == null) stringResource(R.string.common_season_all) else stringResource(R.string.common_season_n, seasonNumber)
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -401,10 +405,10 @@ private fun SelectedMediaSummary(
                 )
                 Spacer(Modifier.height(4.dp))
                 val metaLabel = buildString {
-                    append(if (media.mediaType == MediaType.EPISODE) "剧集" else "电影")
+                    append(typeLabel)
                     if (media.mediaType == MediaType.EPISODE) {
                         append(" · ")
-                        append(if (seasonNumber == null) "全部季" else "第 $seasonNumber 季")
+                        append(seasonLabel)
                     }
                 }
                 Text(
@@ -448,7 +452,7 @@ private fun MediaReselectSection(
             value = state.mediaSearchQuery,
             onValueChange = onSearch,
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("搜索剧集标题") },
+            placeholder = { Text(stringResource(R.string.batch_match_search_hint)) },
             singleLine = true,
             leadingIcon = {
                 if (state.loading) {
@@ -464,7 +468,7 @@ private fun MediaReselectSection(
         if (state.mediaSearchResults.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "搜索结果 (${state.mediaSearchResults.size})",
+                text = stringResource(R.string.batch_match_search_results, state.mediaSearchResults.size),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontWeight = FontWeight.SemiBold,
@@ -506,7 +510,7 @@ private fun CandidateRow(candidate: MediaCandidate, onClick: () -> Unit) {
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                if (candidate.mediaType == MediaType.EPISODE) "剧集" else "电影",
+                if (candidate.mediaType == MediaType.EPISODE) stringResource(R.string.match_type_tv) else stringResource(R.string.match_type_movie),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.SemiBold,
@@ -535,14 +539,13 @@ private fun SeasonSelectorRow(
     onSetSeason: (Int?) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val allSeasonsLabel = stringResource(R.string.common_season_all)
     // 选项列表：「全部季」+ 1..numberOfSeasons。
-    val options = remember(numberOfSeasons) {
-        buildList {
-            add(null to "全部季")
-            for (s in 1..numberOfSeasons) add(s to "第 $s 季")
-        }
+    val options = buildList {
+        add(null to allSeasonsLabel)
+        for (s in 1..numberOfSeasons) add(s to stringResource(R.string.common_season_n, s))
     }
-    val currentLabel = if (seasonNumber == null) "全部季" else "第 $seasonNumber 季"
+    val currentLabel = if (seasonNumber == null) allSeasonsLabel else stringResource(R.string.common_season_n, seasonNumber)
     ExposedDropdownMenuBox(
         expanded = expanded,
         onExpandedChange = { expanded = !expanded },
@@ -552,7 +555,7 @@ private fun SeasonSelectorRow(
             value = currentLabel,
             onValueChange = {},
             readOnly = true,
-            label = { Text("季") },
+            label = { Text(stringResource(R.string.common_season_label)) },
             trailingIcon = {
                 ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
             },
@@ -583,13 +586,18 @@ private fun SeasonSelectorRow(
 
 @Composable
 private fun ValidationStatusBar(state: BatchMatchViewModel.UiState) {
+    val duplicateSlotsMsg = stringResource(
+        R.string.batch_match_duplicate_slots,
+        state.duplicates.joinToString { "S${it.season}E${it.episode}" },
+    )
+    val unsavedChangesMsg = stringResource(R.string.batch_match_unsaved_changes)
     val messages = buildList {
         if (state.duplicates.isNotEmpty()) {
-            add(ErrorRed to "重复槽位：${state.duplicates.joinToString { "S${it.season}E${it.episode}" }}")
+            add(ErrorRed to duplicateSlotsMsg)
         }
         // 空槽数量不再展示（按需求移除）
         if (state.dirty) {
-            add(AccentAmber to "有未应用的修改")
+            add(AccentAmber to unsavedChangesMsg)
         }
     }
     if (messages.isEmpty()) return
@@ -714,7 +722,7 @@ private fun SlotCard(
         // 绑定的文件列表（文件名加粗突出）
         if (row.files.isEmpty()) {
             Text(
-                text = "（空槽，点击选择文件绑定）",
+                text = stringResource(R.string.batch_match_empty_slot),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -744,7 +752,7 @@ private fun UnboundFilesArea(
             .padding(12.dp),
     ) {
         Text(
-            text = "未绑定（${files.size}）",
+            text = stringResource(R.string.batch_match_unbound, files.size),
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -752,7 +760,7 @@ private fun UnboundFilesArea(
         Spacer(Modifier.height(8.dp))
         if (files.isEmpty()) {
             Text(
-                text = "所有文件已绑定",
+                text = stringResource(R.string.batch_match_all_bound),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -814,7 +822,7 @@ private fun PreciseEditSheet(
     ) {
         Column(modifier = Modifier.padding(horizontal = PageMargin, vertical = 8.dp)) {
             Text(
-                text = "选择槽位绑定",
+                text = stringResource(R.string.batch_match_select_slot),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -841,7 +849,7 @@ private fun PreciseEditSheet(
                     ) {
                         Icon(Icons.Default.LinkOff, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("解绑")
+                        Text(stringResource(R.string.batch_match_unbind))
                     }
                 }
                 // B: LazyColumn key 必须是可存入 Bundle 的类型，不能用 SlotKey data class。
@@ -940,7 +948,7 @@ private fun SlotFilePickerSheet(
     ) {
         Column(modifier = Modifier.padding(horizontal = PageMargin, vertical = 8.dp)) {
             Text(
-                text = "选择文件 → $slotLabel",
+                text = stringResource(R.string.batch_match_select_file, slotLabel),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -957,7 +965,7 @@ private fun SlotFilePickerSheet(
             if (currentFile != null) {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "当前：${currentFile.substringAfterLast('/')}",
+                    text = stringResource(R.string.batch_match_current, currentFile.substringAfterLast('/')),
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary,
@@ -980,7 +988,7 @@ private fun SlotFilePickerSheet(
                         ) {
                             Icon(Icons.Default.LinkOff, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("解绑当前文件")
+                            Text(stringResource(R.string.batch_match_unbind_current))
                         }
                         Spacer(Modifier.height(4.dp))
                     }
@@ -990,7 +998,7 @@ private fun SlotFilePickerSheet(
                 if (unbound.isNotEmpty()) {
                     item {
                         Text(
-                            text = "未绑定文件",
+                            text = stringResource(R.string.batch_match_unbound_files),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 4.dp),
@@ -1009,7 +1017,7 @@ private fun SlotFilePickerSheet(
                 if (bound.isNotEmpty()) {
                     item {
                         Text(
-                            text = "已绑定文件（点击交换）",
+                            text = stringResource(R.string.batch_match_bound_files),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 4.dp),
@@ -1090,12 +1098,12 @@ private fun BatchBottomBar(
             onClick = onSmartAssign,
             enabled = hasEpisodeList && !loading,
             modifier = Modifier.weight(1f),
-        ) { Text("智能", style = MaterialTheme.typography.labelMedium, maxLines = 1) }
+        ) { Text(stringResource(R.string.batch_match_smart), style = MaterialTheme.typography.labelMedium, maxLines = 1) }
         FilledTonalButton(
             onClick = onFillSequential,
             enabled = hasEpisodeList && !loading,
             modifier = Modifier.weight(1f),
-        ) { Text("顺序", style = MaterialTheme.typography.labelMedium, maxLines = 1) }
+        ) { Text(stringResource(R.string.batch_match_sequential), style = MaterialTheme.typography.labelMedium, maxLines = 1) }
         Button(
             onClick = onApply,
             enabled = canApply,
@@ -1103,7 +1111,7 @@ private fun BatchBottomBar(
         ) {
             Icon(Icons.Default.Check, contentDescription = null)
             Spacer(Modifier.width(6.dp))
-            Text("应用", maxLines = 1)
+            Text(stringResource(R.string.batch_match_apply), maxLines = 1)
         }
     }
 }

@@ -28,10 +28,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import xa.refile.R
 
 /**
  * Episodes 面板（Task 2.5.3）。
@@ -64,7 +66,7 @@ fun EpisodesPanel(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "暂无集数据，请先选择剧集与季",
+                    text = stringResource(R.string.episodes_empty),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

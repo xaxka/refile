@@ -47,12 +47,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import xa.refile.R
 import xa.refile.ui.theme.ErrorRed
 import xa.refile.ui.theme.SuccessGreen
 
@@ -105,10 +107,10 @@ fun TmdbConfigScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("TMDB 配置") },
+                title = { Text(stringResource(R.string.tmdb_config_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
             )
@@ -138,7 +140,7 @@ fun TmdbConfigScreen(
                     IconButton(onClick = { showApiKey = !showApiKey }) {
                         Icon(
                             if (showApiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                            contentDescription = if (showApiKey) "隐藏 Key" else "显示 Key",
+                            contentDescription = if (showApiKey) stringResource(R.string.tmdb_config_hide_key) else stringResource(R.string.tmdb_config_show_key),
                         )
                     }
                 },
@@ -160,7 +162,7 @@ fun TmdbConfigScreen(
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = if (apiKeyValid) "Key 已配置" else "未配置",
+                    text = if (apiKeyValid) stringResource(R.string.tmdb_config_key_configured) else stringResource(R.string.tmdb_config_key_not_configured),
                     style = MaterialTheme.typography.bodySmall,
                     color = if (apiKeyValid) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -178,31 +180,26 @@ fun TmdbConfigScreen(
 
             // 反代地址：绕过 DNS 污染。空串直连官方，填写后所有 TMDB 请求都走该反代。
             Text(
-                text = "反代地址",
+                text = stringResource(R.string.tmdb_config_proxy),
                 style = MaterialTheme.typography.labelLarge,
             )
             OutlinedTextField(
                 value = proxyUrlInput,
                 onValueChange = { proxyUrlInput = it },
-                label = { Text("Cloudflare Workers 地址") },
+                label = { Text(stringResource(R.string.tmdb_config_proxy_label)) },
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
             )
             Text(
-                text = "留空则直连官方 api.themoviedb.org / image.tmdb.org。" +
-                    "使用 Cloudflare Workers Proxy 反代：",
+                text = stringResource(R.string.tmdb_config_proxy_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             // 免责说明：反代用于绕过 DNS 污染，仅作为网络可达性手段，使用风险与合规由用户自负。
             Text(
-                text = "免责声明：本反代功能仅用于在网络受 DNS 污染时恢复对 TMDB 官方 API " +
-                    "的可达性，不提供任何内容加速、解锁或翻墙能力，也不代表本应用对反代服务" +
-                    "的安全性、隐私政策或可用性作出任何担保。请自行部署或选择可信的反代服务，" +
-                    "因使用第三方反代导致的 API Key 泄露、数据被截留、服务异常或合规风险，" +
-                    "由用户自行承担。使用前请确认其符合您所在地区的法律法规及 TMDB 服务条款。",
+                text = stringResource(R.string.tmdb_config_proxy_disclaimer),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -216,10 +213,10 @@ fun TmdbConfigScreen(
             ) {
                 Icon(Icons.Default.CleaningServices, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("清空 TMDB 缓存")
+                Text(stringResource(R.string.tmdb_config_clear_cache))
             }
             Text(
-                text = "清除已缓存的 TMDB 详情与搜索结果，下次匹配重新走网络。",
+                text = stringResource(R.string.tmdb_config_clear_cache_desc),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -241,7 +238,7 @@ private fun LanguageDropdown(
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
-            text = "语言偏好",
+            text = stringResource(R.string.tmdb_config_language),
             style = MaterialTheme.typography.labelLarge,
         )
         ExposedDropdownMenuBox(

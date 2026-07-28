@@ -64,6 +64,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -71,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.SubcomposeAsyncImage
+import xa.refile.R
 import xa.refile.core.matcher.MatchCandidate
 import xa.refile.core.model.MediaType
 import xa.refile.core.rename.CompanionRename
@@ -183,12 +185,12 @@ fun PreviewScreen(
                         onClick = onBack,
                         modifier = Modifier.defaultMinSize(minWidth = MinTouchSize, minHeight = MinTouchSize),
                     ) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
                 title = {
                     Text(
-                        text = "预览",
+                        text = stringResource(R.string.preview_title),
                         style = MaterialTheme.typography.titleLarge,
                     )
                 },
@@ -198,7 +200,7 @@ fun PreviewScreen(
                             onClick = onOpenBatchMatch,
                             modifier = Modifier.defaultMinSize(minWidth = MinTouchSize, minHeight = MinTouchSize),
                         ) {
-                            Icon(Icons.Outlined.EditNote, contentDescription = "批量匹配编辑")
+                            Icon(Icons.Outlined.EditNote, contentDescription = stringResource(R.string.preview_batch_match_edit))
                         }
                     }
                 },
@@ -247,8 +249,8 @@ fun PreviewScreen(
 
                     state.previewItems.isEmpty() -> EmptyState(
                         icon = Icons.Outlined.Movie,
-                        title = "无可预览的匹配项",
-                        subtitle = "请返回文件选择页选择文件后再来预览",
+                        title = stringResource(R.string.preview_empty_title),
+                        subtitle = stringResource(R.string.preview_empty_subtitle),
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(padding),
@@ -256,8 +258,8 @@ fun PreviewScreen(
 
                     state.activeItems.isEmpty() -> EmptyState(
                         icon = Icons.Outlined.FilterList,
-                        title = "当前筛选下无项目",
-                        subtitle = "点击顶部统计切换筛选",
+                        title = stringResource(R.string.preview_filter_empty_title),
+                        subtitle = stringResource(R.string.preview_filter_empty_subtitle),
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(padding),
@@ -287,7 +289,7 @@ fun PreviewScreen(
                             ) {
                                 Icon(Icons.Outlined.AutoFixHigh, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
-                                Text("一键解决冲突（${state.conflictCount}）")
+                                Text(stringResource(R.string.preview_resolve_conflicts, state.conflictCount))
                             }
                         }
                         LazyColumn(
@@ -335,7 +337,7 @@ private fun MatchingProgressContent(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            text = "正在匹配",
+            text = stringResource(R.string.preview_matching),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
         )
@@ -348,7 +350,7 @@ private fun MatchingProgressContent(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    text = "${progress.current} / ${progress.total}",
+                    text = stringResource(R.string.preview_progress_ratio, progress.current, progress.total),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -360,7 +362,7 @@ private fun MatchingProgressContent(
                 if (error.isNullOrBlank()) {
                     CircularProgressIndicator()
                     Text(
-                        text = "准备匹配…",
+                        text = stringResource(R.string.preview_preparing),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -407,21 +409,21 @@ private fun StatsSummaryRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         FilterChipPill(
-            label = "全部 $totalCount",
+            label = stringResource(R.string.preview_filter_all, totalCount),
             tint = MaterialTheme.colorScheme.primary,
             enabled = true,
             selected = currentFilter == PreviewViewModel.StatusFilter.ALL,
             onClick = { onFilter(PreviewViewModel.StatusFilter.ALL) },
         )
         FilterChipPill(
-            label = "未匹配 $needsConfirmCount",
+            label = stringResource(R.string.preview_filter_unmatched, needsConfirmCount),
             tint = WarningAmber,
             enabled = needsConfirmCount > 0,
             selected = currentFilter == PreviewViewModel.StatusFilter.UNMATCHED,
             onClick = { onFilter(PreviewViewModel.StatusFilter.UNMATCHED) },
         )
         FilterChipPill(
-            label = "冲突 $conflictCount",
+            label = stringResource(R.string.preview_filter_conflict, conflictCount),
             tint = ErrorRed,
             enabled = conflictCount > 0,
             selected = currentFilter == PreviewViewModel.StatusFilter.CONFLICT,
@@ -482,7 +484,7 @@ private fun BottomActionBar(
         ) {
             Icon(Icons.Outlined.PlayArrow, contentDescription = null)
             Spacer(Modifier.width(6.dp))
-            Text("执行（$executableCount）")
+            Text(stringResource(R.string.preview_execute, executableCount))
         }
     }
 }
@@ -520,7 +522,7 @@ private fun PreviewCard(
     }
     // 用户要求：右侧徽章显示识别到的剧集/电影类型，而非「自动」状态文案。
     // 状态（冲突/待确认）通过左侧图标 + 文件名颜色 + 冲突原因传达。
-    val typeLabel = if (item.mediaType == MediaType.EPISODE) "剧集" else "电影"
+    val typeLabel = if (item.mediaType == MediaType.EPISODE) stringResource(R.string.match_type_tv) else stringResource(R.string.match_type_movie)
     val newFileNameColor = when (item.status) {
         PreviewViewModel.PreviewStatus.CONFLICT -> ErrorRed
         PreviewViewModel.PreviewStatus.NEEDS_CONFIRM -> WarningAmber
@@ -588,13 +590,13 @@ private fun PreviewCard(
         if (isPendingWithCandidates) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "待确认 · 点击选择候选",
+                    text = stringResource(R.string.preview_pending_hint),
                     style = MaterialTheme.typography.bodyMedium,
                     color = WarningAmber,
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(onClick = { candidatesExpanded = !candidatesExpanded }) {
-                    Text(if (candidatesExpanded) "收起" else "选择候选")
+                    Text(if (candidatesExpanded) stringResource(R.string.preview_collapse) else stringResource(R.string.preview_select_candidate))
                 }
             }
         } else {
@@ -651,7 +653,7 @@ private fun PreviewCard(
                 HorizontalDivider()
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "候选（${item.candidates.size}）",
+                    text = stringResource(R.string.preview_candidates, item.candidates.size),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -669,7 +671,7 @@ private fun PreviewCard(
                 HorizontalDivider()
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "伴随文件（${companions.size}）",
+                    text = stringResource(R.string.preview_companions, companions.size),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -690,7 +692,7 @@ private fun PreviewCard(
                 ) {
                     IconActionButton(
                         icon = if (companionsExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                        contentDescription = if (companionsExpanded) "收起伴随文件" else "展开伴随文件",
+                        contentDescription = if (companionsExpanded) stringResource(R.string.preview_collapse_companions) else stringResource(R.string.preview_expand_companions),
                         onClick = { companionsExpanded = !companionsExpanded },
                     )
                 }

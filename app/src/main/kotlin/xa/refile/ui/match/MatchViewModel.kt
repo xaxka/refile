@@ -17,7 +17,8 @@ import xa.refile.core.parser.ParsedFilename
 import xa.refile.core.tmdb.TmdbImages
 import xa.refile.core.tmdb.TmdbMapper
 import xa.refile.data.prefs.SettingsRepository
-import xa.refile.data.repository.TmdbCacheRepository
+import xa.refile.data.repository.TmdbDetailRepository
+import xa.refile.data.repository.TmdbSearchRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,18 +36,20 @@ import javax.inject.Inject
  * TMDB 匹配编排 ViewModel（计划 §M2 Task 2.4）。
  *
  * 流程：浏览器选中的视频路径 → [FilenameParser] 解析 → 判定类型（自动）
- * → [TmdbCacheRepository] 搜索 → [MatchEngine] 决策：
+ * → [TmdbSearchRepository] 搜索 → [MatchEngine] 决策：
  * - [MatchDecision.Auto]：拉详情（剧集补 [MediaMetadata.seasonNumber]/[MediaMetadata.episodeTitles]）→ 自动✅
  * - [MatchDecision.NeedsConfirm]：待确认⚠️，保留候选供 UI 选择
  * - [MatchDecision.NoMatch]：无匹配❌，用户可手动搜索
  *
- * Task 2.3.4：所有 TMDB 访问改走 [TmdbCacheRepository]（详情类请求自动走 Room 缓存，
- * 搜索类请求透传）。API Key 仅从 [SettingsRepository] 读取用于网络请求，绝不进入 UI 状态或日志。
+ * Task 2.3.4 / Task 20：TMDB 访问拆分为 [TmdbSearchRepository]（搜索类，会话级内存缓存）
+ * 与 [TmdbDetailRepository]（详情类，Room 持久缓存）。API Key 仅从 [SettingsRepository]
+ * 读取用于网络请求，绝不进入 UI 状态或日志。
  */
 @HiltViewModel
 class MatchViewModel @Inject constructor(
     private val settings: SettingsRepository,
-    private val tmdbCache: TmdbCacheRepository,
+    private val tmdbSearch: TmdbSearchRepository,
+    private val tmdbDetail: TmdbDetailRepository,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -130,7 +133,7 @@ class MatchViewModel @Inject constructor(
             } else {
                 // 文件列表变化时才清空会话搜索缓存：同一批文件重新匹配时保留缓存，
                 // 搜索/详情命中内存缓存或 Room 持久缓存，避免重复联网（用户反馈"重复匹配仍联网"）。
-                tmdbCache.clearSessionCache()
+                tmdbSearch.clearSessionCache()
                 it.copy(
                     selectedFiles = files,
                     progress = Progress.Idle,
@@ -174,9 +177,9 @@ class MatchViewModel @Inject constructor(
      * 3. 实时更新 [Progress.Running] 与 results/pending。
      *
      * Feature #23 / #24 批处理预取：
-     * - TV 文件：用 [SeriesNameMatcher] 从文件名中提取公共剧名，每个剧名只发 1 次 [TmdbCacheRepository.searchTv]，
+     * - TV 文件：用 [SeriesNameMatcher] 从文件名中提取公共剧名，每个剧名只发 1 次 [TmdbSearchRepository.searchTv]，
      *   同剧多集文件共享候选列表（避免逐文件 `searchTv("Show")` 发 N 次请求；并抗单文件噪音）。
-     * - 电影文件：用 [VideoListResolver] 把多版本归组（同标题同年份），每组发 1 次 [TmdbCacheRepository.searchMovie]，
+     * - 电影文件：用 [VideoListResolver] 把多版本归组（同标题同年份），每组发 1 次 [TmdbSearchRepository.searchMovie]，
      *   组内文件共享候选 + 在命名时统一加版本标记。
      * - 预取失败的文件回退到 [runMatchForFile] 的 per-file 搜索（[preFetchedCandidates] = null）。
      */
@@ -231,7 +234,7 @@ class MatchViewModel @Inject constructor(
                     else -> null
                 }
                 val fm = try {
-                    runMatchForFile(tmdbCache, p, type, language, path, preFetched)
+                    runMatchForFile(p, type, language, path, preFetched)
                 } catch (t: Throwable) {
                     if (t is kotlinx.coroutines.CancellationException) throw t
                     FileMatch(path, p, MatchStatus.NO_MATCH, error = t.message ?: "未知错误")
@@ -257,12 +260,12 @@ class MatchViewModel @Inject constructor(
     /**
      * Feature #23：批量预取 TV 候选。
      *
-     * 对所有 TV 类型文件用 [SeriesNameMatcher] 找公共剧名 → 每个剧名 1 次 [TmdbCacheRepository.searchTv]。
+     * 对所有 TV 类型文件用 [SeriesNameMatcher] 找公共剧名 → 每个剧名 1 次 [TmdbSearchRepository.searchTv]。
      * 同剧多集文件（如 `Show.S01E01.mkv` ~ `Show.S01E03.mkv`）共享同一候选列表，
      * 避免逐文件发 searchTv("Show") 共 N 次请求；并抵消单文件名噪音（如某个文件多带了 `1080p.BluRay.x264-GROUP`
      * 让 [FilenameParser] 误解析为别的标题）。
      *
-     * 返回：fileIndex → 共享的 [MediaMetadata] 列表（已 [TmdbCacheRepository] 自动走 sessionCache 去重）。
+     * 返回：fileIndex → 共享的 [MediaMetadata] 列表（已 [TmdbSearchRepository] 自动走 sessionCache 去重）。
      * 未归到任何剧的 TV 文件不在返回 map 中（调用方走 per-file 搜索）。
      */
     private suspend fun preFetchTvCandidates(
@@ -282,7 +285,7 @@ class MatchViewModel @Inject constructor(
         val seriesCandidates = coroutineScope {
             seriesResult.seriesNames.associateWith { sn ->
                 async {
-                    runCatching { tmdbCache.searchTv(sn, year = null, language = language) }
+                    runCatching { tmdbSearch.searchTv(sn, year = null, language = language) }
                         .getOrNull() ?: emptyList()
                 }
             }.mapValues { it.value.await() }
@@ -304,7 +307,7 @@ class MatchViewModel @Inject constructor(
      * Feature #24：批量预取电影候选。
      *
      * 对所有 MOVIE 类型文件用 [VideoListResolver] 归组（按归一标题 + 年份）→ 每组 1 次
-     * [TmdbCacheRepository.searchMovie]（query=primary.title, year=primary.year）。
+     * [TmdbSearchRepository.searchMovie]（query=primary.title, year=primary.year）。
      * 组内文件（不同分辨率 / 编码 / HDR）共享同一候选列表，避免逐文件搜索 + 重复打分；
      * primary 用组内最高画质版本（用于 TMDB 搜索 query 来源稳定）。
      *
@@ -330,7 +333,7 @@ class MatchViewModel @Inject constructor(
             multiFileGroups.map { g ->
                 async {
                     val q = g.title.takeIf { it.isNotBlank() } ?: return@async g to emptyList()
-                    val cands = runCatching { tmdbCache.searchMovie(q, g.year, language) }
+                    val cands = runCatching { tmdbSearch.searchMovie(q, g.year, language) }
                         .getOrNull() ?: emptyList()
                     g to cands
                 }
@@ -385,9 +388,9 @@ class MatchViewModel @Inject constructor(
      * 单文件匹配：搜索 → 决策 → 拉详情。
      *
      * P3.0：Provider ID 短路 —— 若 [ParsedFilename] 携带 tmdbId/tvdbId/imdbId（优先级 tmdbId > tvdbId > imdbId），
-     * 优先走 [TmdbCacheRepository.findByTmdbId]/[findByTvdbId]/[findByImdbId] 精确查找，命中即视为权威候选
-     * 直接 Auto（ID 比 ParsedFilename.title 更可靠）。短路未命中（端点 404 / 网络失败 / parsed 无 ID）时
-     * 回退到原 search + 相似度打分路径。
+     * 优先走 [TmdbDetailRepository.findByTmdbId] / [TmdbSearchRepository.findByTvdbId] /
+     * [TmdbSearchRepository.findByImdbId] 精确查找，命中即视为权威候选直接 Auto（ID 比 ParsedFilename.title
+     * 更可靠）。短路未命中（端点 404 / 网络失败 / parsed 无 ID）时回退到原 search + 相似度打分路径。
      *
      * P2.2：若首决策为 NeedsConfirm 且 parsed 携带 SxE，预拉 top 候选的季详情做 SxE 互校，
      * 命中则填充 candidate.season/episodes 重打分，可能升级为 Auto。
@@ -396,7 +399,6 @@ class MatchViewModel @Inject constructor(
      * 如 [SeriesNameMatcher] / [VideoListResolver] 派发的同剧 / 同片共享候选）；为空则回退到原 per-file 搜索。
      */
     private suspend fun runMatchForFile(
-        tmdbCache: TmdbCacheRepository,
         parsed: ParsedFilename,
         type: MatchType,
         language: String,
@@ -414,21 +416,21 @@ class MatchViewModel @Inject constructor(
             val hit: MediaMetadata? = when {
                 // tmdbId 短路：MediaType 必须确定，AUTO 时按 parsed.season/episodes 推断
                 tmdbId != null -> try {
-                    tmdbCache.findByTmdbId(tmdbId, tmdbMediaType(p, type), language)
+                    tmdbDetail.findByTmdbId(tmdbId, tmdbMediaType(p, type), language)
                 } catch (t: Throwable) {
                     if (t is kotlinx.coroutines.CancellationException) throw t
                     null
                 }
                 // tvdbId 短路：MediaType 可为 null（让 TmdbClient 自己分桶）
                 tvdbId != null -> try {
-                    tmdbCache.findByTvdbId(tvdbId, nullableMediaType(type), language)
+                    tmdbSearch.findByTvdbId(tvdbId, nullableMediaType(type), language)
                 } catch (t: Throwable) {
                     if (t is kotlinx.coroutines.CancellationException) throw t
                     null
                 }
                 // imdbId 短路：保留 P2.4 原行为，AUTO 时传 null
                 !imdbId.isNullOrBlank() -> try {
-                    tmdbCache.findByImdbId(imdbId, nullableMediaType(type), language)
+                    tmdbSearch.findByImdbId(imdbId, nullableMediaType(type), language)
                 } catch (t: Throwable) {
                     if (t is kotlinx.coroutines.CancellationException) throw t
                     null
@@ -441,7 +443,7 @@ class MatchViewModel @Inject constructor(
         if (idDecision is MatchDecision.Auto) {
             // 短路命中：fetchDetail 拉完整详情（TV 类型补 seasonNumber/episodeTitles），避免 hitMeta 是轻量元数据
             val found = hitMeta!!
-            val meta = fetchDetail(tmdbCache, idDecision.best.candidate, parsed, language)
+            val meta = fetchDetail(idDecision.best.candidate, parsed, language)
             return FileMatch(
                 filePath = filePath,
                 parsed = parsed,
@@ -466,8 +468,8 @@ class MatchViewModel @Inject constructor(
             searchResults = coroutineScope {
                 searchTitles.map { q ->
                     async {
-                        if (type == MatchType.TV) tmdbCache.searchTv(q, parsed.year, language)
-                        else tmdbCache.searchMovie(q, parsed.year, language)
+                        if (type == MatchType.TV) tmdbSearch.searchTv(q, parsed.year, language)
+                        else tmdbSearch.searchMovie(q, parsed.year, language)
                     }
                 }.awaitAll()
             }.flatMap { it }.distinctBy { it.id }
@@ -476,7 +478,7 @@ class MatchViewModel @Inject constructor(
         val decision = engine.match(parsed, candidates)
         // P2.2：SxE 互校 — NeedsConfirm 时若 parsed 有 SxE，预拉季详情验证后重打分
         val finalDecision = if (decision is MatchDecision.NeedsConfirm) {
-            enrichWithSxe(tmdbCache, parsed, decision.candidates, language)?.let { enriched ->
+            enrichWithSxe(parsed, decision.candidates, language)?.let { enriched ->
                 engine.match(parsed, enriched)
             } ?: decision
         } else {
@@ -484,7 +486,7 @@ class MatchViewModel @Inject constructor(
         }
         return when (finalDecision) {
             is MatchDecision.Auto -> {
-                val meta = fetchDetail(tmdbCache, finalDecision.best.candidate, parsed, language)
+                val meta = fetchDetail(finalDecision.best.candidate, parsed, language)
                 FileMatch(
                     filePath = filePath,
                     parsed = parsed,
@@ -515,7 +517,6 @@ class MatchViewModel @Inject constructor(
      * 未命中或不可验证返回 null，调用方沿用原决策。
      */
     private suspend fun enrichWithSxe(
-        tmdbCache: TmdbCacheRepository,
         parsed: ParsedFilename,
         scored: List<ScoredCandidate>,
         language: String,
@@ -525,7 +526,7 @@ class MatchViewModel @Inject constructor(
         val top = scored.firstOrNull()?.candidate ?: return null
         if (top.mediaType != MediaType.EPISODE) return null
         val season = try {
-            tmdbCache.getSeason(top.tmdbId, seasonNum, language)
+            tmdbDetail.getSeason(top.tmdbId, seasonNum, language)
         } catch (t: Throwable) {
             if (t is kotlinx.coroutines.CancellationException) throw t
             null
@@ -566,7 +567,7 @@ class MatchViewModel @Inject constructor(
             }
             val language = settings.language.first()
             val meta = try {
-                fetchDetail(tmdbCache, candidate, fm.parsed, language)
+                fetchDetail(candidate, fm.parsed, language)
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 null
@@ -606,9 +607,9 @@ class MatchViewModel @Inject constructor(
             val parsed = fm?.parsed ?: parser.parse(q)
             try {
                 val results = if (type == MatchType.TV) {
-                    tmdbCache.searchTv(q, null, language)
+                    tmdbSearch.searchTv(q, null, language)
                 } else {
-                    tmdbCache.searchMovie(q, null, language)
+                    tmdbSearch.searchMovie(q, null, language)
                 }
                 val candidates = results.map { it.toMatchCandidate() }
                 val scored = candidates
@@ -657,41 +658,40 @@ class MatchViewModel @Inject constructor(
     }
 
     /**
-     * 拉详情：电影 → [TmdbCacheRepository.getMovie]；剧集 → [TmdbCacheRepository.getTv] + [TmdbCacheRepository.getSeason]
+     * 拉详情：电影 → [TmdbDetailRepository.getMovie]；剧集 → [TmdbDetailRepository.getTv] + [TmdbDetailRepository.getSeason]
      * 填 [MediaMetadata.seasonNumber]/[MediaMetadata.episodeNumbers]/[MediaMetadata.episodeTitles]
      * /[MediaMetadata.episodeAirDates]（多集标题 `A & B` 合并，对齐 [TmdbMapper] 规则）。
-     * Task 2.3.4：详情请求经 [TmdbCacheRepository] 自动走 Room 缓存（7 天 TTL）。
+     * Task 2.3.4：详情请求经 [TmdbDetailRepository] 自动走 Room 缓存（7 天 TTL）。
      *
      * 季号解析顺序：显式 parsed.season > 绝对集号按季累加定位 (season, episodeInSeason) > 回退 1。
      * 不再硬填 season=1：仅当无法从 [ParsedFilename.isAbsoluteEpisode] 定位时才回退。
      */
     private suspend fun fetchDetail(
-        tmdbCache: TmdbCacheRepository,
         candidate: MatchCandidate,
         parsed: ParsedFilename,
         language: String,
     ): MediaMetadata {
         val id = candidate.tmdbId
         return if (candidate.mediaType == MediaType.EPISODE) {
-            val tv = tmdbCache.getTv(id, language)
+            val tv = tmdbDetail.getTv(id, language)
             // 季号解析：显式 > 绝对集号按季累加定位 > 回退 1
             var seasonNumber = parsed.season
             var episodes = parsed.episodes
             if (seasonNumber == null && parsed.isAbsoluteEpisode && episodes.isNotEmpty()) {
-                resolveAbsoluteEpisode(tmdbCache, id, episodes.first(), tv.numberOfSeasons, language)
+                resolveAbsoluteEpisode(id, episodes.first(), tv.numberOfSeasons, language)
                     ?.let { (s, e) ->
                         seasonNumber = s
                         episodes = listOf(e)
                     }
             }
-            // TODO: 后续可优先调用 tmdbCache.getEpisodeGroup 按 TMDB episode group 分组定位绝对集号
+            // TODO: 后续可优先调用 tmdbDetail.getEpisodeGroup 按 TMDB episode group 分组定位绝对集号
             //       （需 TmdbMapper 在 tv.info 暴露 episode group id 列表）；当前采用按季顺序累加集数的回退策略。
             val finalSeason = seasonNumber ?: 1
             if (episodes.isEmpty()) {
                 tv.copy(seasonNumber = finalSeason)
             } else {
                 val season = try {
-                    tmdbCache.getSeason(id, finalSeason, language)
+                    tmdbDetail.getSeason(id, finalSeason, language)
                 } catch (t: Throwable) {
                     if (t is kotlinx.coroutines.CancellationException) throw t
                     null
@@ -706,7 +706,7 @@ class MatchViewModel @Inject constructor(
                 // 拉取 group detail 把"原集号→DVD 顺序集号"映射填入 media.order["dvd"]，
                 // 模板可用 {order.dvd.e} 输出 DVD 顺序集号（增强项，失败静默跳过）。
                 val dvdOrder = if (parsed.isAbsoluteEpisode) {
-                    resolveDvdOrder(tmdbCache, tv, season)
+                    resolveDvdOrder(tv, season)
                 } else null
                 tv.copy(
                     seasonNumber = finalSeason,
@@ -718,7 +718,7 @@ class MatchViewModel @Inject constructor(
                 )
             }
         } else {
-            tmdbCache.getMovie(id, language)
+            tmdbDetail.getMovie(id, language)
         }
     }
 
@@ -727,7 +727,6 @@ class MatchViewModel @Inject constructor(
      * 任一季请求失败则跳过该季继续；总集数不足以覆盖绝对集号时返回 null（调用方回退 season=1）。
      */
     private suspend fun resolveAbsoluteEpisode(
-        tmdbCache: TmdbCacheRepository,
         tvId: Int,
         absEp: Int,
         numberOfSeasons: Int?,
@@ -738,7 +737,7 @@ class MatchViewModel @Inject constructor(
         var remaining = absEp
         for (s in 1..maxSeason) {
             val season = try {
-                tmdbCache.getSeason(tvId, s, language)
+                tmdbDetail.getSeason(tvId, s, language)
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 null
@@ -760,14 +759,13 @@ class MatchViewModel @Inject constructor(
      * （无 DVD group / group 详情拉取失败 / 无匹配集）返回 null，调用方保持原 order 不变。
      */
     private suspend fun resolveDvdOrder(
-        tmdbCache: TmdbCacheRepository,
         tv: MediaMetadata,
         season: xa.refile.core.tmdb.SeasonDetail?,
     ): Map<String, Int>? {
         val dvdGroupId = tv.info["dvdEpisodeGroupId"]?.takeIf { it.isNotBlank() } ?: return null
         val seasonEpisodes = season?.episodes ?: return null
         return try {
-            val group = tmdbCache.getEpisodeGroup(dvdGroupId)
+            val group = tmdbDetail.getEpisodeGroup(dvdGroupId)
             TmdbMapper.dvdOrderMap(seasonEpisodes, group)
         } catch (t: Throwable) {
             if (t is kotlinx.coroutines.CancellationException) throw t

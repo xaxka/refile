@@ -7,6 +7,7 @@ import xa.refile.BuildConfig
 import xa.refile.core.naming.PresetRepository
 import xa.refile.data.crypto.KeystoreCrypto
 import xa.refile.data.db.AppDatabase
+import xa.refile.data.db.Migrations
 import xa.refile.data.db.RenameBatchDao
 import xa.refile.data.db.ServerConfigDao
 import xa.refile.data.db.TmdbCacheDao
@@ -33,9 +34,12 @@ object DatabaseModule {
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "refile.db")
+            // Task 19：注册正式 Migration（v1→v2、v2→v3），release 不再因缺迁移路径
+            // 而抛 IllegalStateException 或被迫清空用户数据。
+            .addMigrations(*Migrations.ALL)
             .apply {
-                // 仅 debug 期允许版本变更时直接重建；release 需提供正规 Migration，
-                // 缺失时抛异常而非静默清空用户数据（Task 5.1 修复）。
+                // 仅 debug 期允许「未覆盖到的版本」直接重建（开发期改 schema 的兜底）；
+                // release 走正式 Migration，缺失时抛异常而非静默清空用户数据。
                 if (BuildConfig.DEBUG) {
                     fallbackToDestructiveMigration()
                 }

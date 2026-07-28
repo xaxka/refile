@@ -79,7 +79,7 @@ class SettingsRepository @Inject constructor(
      * 为空表示直连官方 `api.themoviedb.org` / `image.tmdb.org`。
      * 用户只需填 Workers 根地址（如 `https://your-worker.workers.dev/`），API 与图片请求
      * 会自动在内部拼上官方目标地址，绕过国内 DNS 污染。
-     * - API：[xa.refile.data.repository.TmdbCacheRepository] 构造 TmdbClient 时拼接。
+     * - API：[xa.refile.data.repository.TmdbClientProvider] 构造 TmdbClient 时拼接。
      * - 图片：[xa.refile.core.tmdb.TmdbImages.proxyUrl] 由 app 启动时同步。
      */
     val tmdbProxyUrl: Flow<String> = context.dataStore.data.map { it[KEY_TMDB_PROXY_URL] ?: "" }

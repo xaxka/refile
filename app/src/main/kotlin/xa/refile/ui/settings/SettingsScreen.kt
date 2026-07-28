@@ -50,10 +50,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import xa.refile.R
 import xa.refile.core.rename.ConflictStrategy
 
 /**
@@ -120,10 +122,10 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("设置") },
+                title = { Text(stringResource(R.string.common_settings)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
             )
@@ -139,11 +141,11 @@ fun SettingsScreen(
         ) {
             // ---------- 组 1：TMDB 配置 ----------
             item {
-                SettingsSection(title = "TMDB 配置") {
+                SettingsSection(title = stringResource(R.string.settings_section_tmdb)) {
                     SettingsRow(
                         icon = Icons.Default.Key,
-                        title = "TMDB 配置",
-                        subtitle = "API Key 与语言偏好",
+                        title = stringResource(R.string.settings_tmdb_config),
+                        subtitle = stringResource(R.string.settings_tmdb_config_subtitle),
                         onClick = onOpenTmdbConfig,
                     )
                 }
@@ -151,11 +153,11 @@ fun SettingsScreen(
 
             // ---------- 组 2：命名与模板 ----------
             item {
-                SettingsSection(title = "命名与模板") {
+                SettingsSection(title = stringResource(R.string.settings_section_naming)) {
                     SettingsRow(
                         icon = Icons.Default.Description,
-                        title = "模板编辑器",
-                        subtitle = "补零位数与变量插值",
+                        title = stringResource(R.string.settings_template_editor),
+                        subtitle = stringResource(R.string.settings_template_editor_subtitle),
                         onClick = viewModel::openTemplateEditor,
                     )
                 }
@@ -163,27 +165,27 @@ fun SettingsScreen(
 
             // ---------- 组 3：文件（执行阶段冲突策略与回收站） ----------
             item {
-                SettingsSection(title = "文件") {
+                SettingsSection(title = stringResource(R.string.settings_section_file)) {
                     SettingsRow(
                         icon = Icons.Default.Folder,
-                        title = "冲突处理策略",
+                        title = stringResource(R.string.settings_conflict_strategy),
                         subtitle = conflictStrategyLabel(conflictStrategy),
                         onClick = { showConflictDialog = true },
                     )
                     // 回收站总开关：关闭后回收站目录项禁用，safeDelete 不执行回收备份。
                     SwitchSettingsRow(
                         icon = Icons.Default.DeleteOutline,
-                        title = "启用回收站",
-                        subtitle = if (trashEnabled) "删除/覆盖前移动到回收站目录" else "已关闭（不执行回收备份）",
+                        title = stringResource(R.string.settings_enable_trash),
+                        subtitle = if (trashEnabled) stringResource(R.string.settings_trash_enabled_subtitle) else stringResource(R.string.settings_trash_disabled_subtitle),
                         checked = trashEnabled,
                         onCheckedChange = viewModel::setTrashEnabled,
                     )
                     SettingsRow(
                         icon = Icons.Default.DeleteOutline,
-                        title = "回收站目录",
+                        title = stringResource(R.string.settings_trash_dir),
                         subtitle = when {
-                            !trashEnabled -> "已关闭"
-                            trashDir.isBlank() -> "未配置（物理删除）"
+                            !trashEnabled -> stringResource(R.string.settings_trash_closed)
+                            trashDir.isBlank() -> stringResource(R.string.settings_trash_unconfigured)
                             else -> trashDir
                         },
                         onClick = { if (trashEnabled) showTrashDialog = true },
@@ -194,11 +196,11 @@ fun SettingsScreen(
 
             // ---------- 组 4：数据管理 ----------
             item {
-                SettingsSection(title = "数据管理") {
+                SettingsSection(title = stringResource(R.string.settings_section_data)) {
                     SettingsRow(
                         icon = Icons.Default.Backup,
-                        title = "备份与恢复",
-                        subtitle = "导出/导入设置与服务器",
+                        title = stringResource(R.string.settings_backup),
+                        subtitle = stringResource(R.string.settings_backup_subtitle),
                         onClick = viewModel::openBackup,
                     )
                 }
@@ -206,7 +208,7 @@ fun SettingsScreen(
 
             // ---------- 组 4：关于 ----------
             item {
-                SettingsSection(title = "关于") {
+                SettingsSection(title = stringResource(R.string.settings_section_about)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -228,7 +230,7 @@ fun SettingsScreen(
                                 ),
                             )
                             Text(
-                                text = "版本 $versionName",
+                                text = stringResource(R.string.settings_version, versionName),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -241,14 +243,14 @@ fun SettingsScreen(
                             )
                             // 图片来自 TMDB（同样为 TMDB 服务条款要求）
                             Text(
-                                text = "海报与背景图来自 TMDB，版权归原版权方所有。",
+                                text = stringResource(R.string.settings_tmdb_image_notice),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Spacer(Modifier.height(4.dp))
                             // 开源许可：点击查看随 APK 分发的 NOTICE.txt（含 dav4jvm MPL-2.0 披露）。
                             Text(
-                                text = "开源许可（含 dav4jvm — MPL-2.0）",
+                                text = stringResource(R.string.settings_open_source_license),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.clickable { viewModel.loadOpenSourceNotices() },
@@ -266,10 +268,10 @@ fun SettingsScreen(
             onDismissRequest = viewModel::clearOpenSourceNotices,
             confirmButton = {
                 TextButton(onClick = viewModel::clearOpenSourceNotices) {
-                    Text("关闭")
+                    Text(stringResource(R.string.common_close))
                 }
             },
-            title = { Text("开源许可") },
+            title = { Text(stringResource(R.string.settings_open_source_title)) },
             text = {
                 Text(
                     text = notice,
@@ -305,19 +307,21 @@ fun SettingsScreen(
 }
 
 /** 冲突策略 → 简短文案（用于设置行副标题）。 */
+@Composable
 private fun conflictStrategyLabel(strategy: ConflictStrategy): String = when (strategy) {
-    ConflictStrategy.SKIP -> "跳过冲突文件"
-    ConflictStrategy.FAIL -> "失败（不覆盖）"
-    ConflictStrategy.INDEX -> "自动加序号"
-    ConflictStrategy.OVERWRITE -> "覆盖目标"
+    ConflictStrategy.SKIP -> stringResource(R.string.settings_conflict_skip)
+    ConflictStrategy.FAIL -> stringResource(R.string.settings_conflict_fail)
+    ConflictStrategy.INDEX -> stringResource(R.string.settings_conflict_index)
+    ConflictStrategy.OVERWRITE -> stringResource(R.string.settings_conflict_overwrite)
 }
 
 /** 冲突策略 → 详细说明（用于选择对话框）。 */
+@Composable
 private fun conflictStrategyDescription(strategy: ConflictStrategy): String = when (strategy) {
-    ConflictStrategy.SKIP -> "目标已存在则跳过该文件，继续后续"
-    ConflictStrategy.FAIL -> "不覆盖；目标已存在时 MOVE 失败并记录，继续后续"
-    ConflictStrategy.INDEX -> "目标已存在时自动加序号 (1)、(2)…"
-    ConflictStrategy.OVERWRITE -> "直接覆盖目标文件"
+    ConflictStrategy.SKIP -> stringResource(R.string.settings_conflict_skip_desc)
+    ConflictStrategy.FAIL -> stringResource(R.string.settings_conflict_fail_desc)
+    ConflictStrategy.INDEX -> stringResource(R.string.settings_conflict_index_desc)
+    ConflictStrategy.OVERWRITE -> stringResource(R.string.settings_conflict_overwrite_desc)
 }
 
 @Composable
@@ -329,9 +333,9 @@ private fun ConflictStrategyDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
         },
-        title = { Text("冲突处理策略") },
+        title = { Text(stringResource(R.string.settings_conflict_strategy)) },
         text = {
             Column {
                 ConflictStrategy.values().forEach { strategy ->
@@ -375,16 +379,16 @@ private fun TrashDirDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
-            TextButton(onClick = { onConfirm(text) }) { Text("保存") }
+            TextButton(onClick = { onConfirm(text) }) { Text(stringResource(R.string.common_save)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
         },
-        title = { Text("回收站目录") },
+        title = { Text(stringResource(R.string.settings_trash_dir)) },
         text = {
             Column {
                 Text(
-                    text = "删除/覆盖前把文件移动到该目录而非物理删除。留空表示不启用回收站。",
+                    text = stringResource(R.string.settings_trash_dir_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

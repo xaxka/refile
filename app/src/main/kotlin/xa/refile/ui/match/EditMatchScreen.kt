@@ -53,12 +53,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import xa.refile.R
 import xa.refile.core.model.MediaType
 import xa.refile.ui.match.EditMatchViewModel.MediaCandidate
 
@@ -131,16 +133,16 @@ fun EditMatchScreen(
             TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
-                title = { Text("匹配") },
+                title = { Text(stringResource(R.string.edit_match_title)) },
                 actions = {
                     IconButton(
                         onClick = viewModel::applyEdit,
                         enabled = !state.loading,
                     ) {
-                        Icon(Icons.Default.Check, contentDescription = "保存")
+                        Icon(Icons.Default.Check, contentDescription = stringResource(R.string.common_save))
                     }
                 },
             )
@@ -156,7 +158,7 @@ fun EditMatchScreen(
             if (current == null) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        "无可编辑条目（索引 $matchIndex 越界）",
+                        stringResource(R.string.edit_match_no_entry, matchIndex),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -204,12 +206,12 @@ private fun SingleMultiView(
                 selected = state.mediaType == MediaType.MOVIE,
                 onClick = { onSwitchType(MediaType.MOVIE) },
                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-            ) { Text("电影") }
+            ) { Text(stringResource(R.string.match_type_movie)) }
             SegmentedButton(
                 selected = state.mediaType == MediaType.EPISODE,
                 onClick = { onSwitchType(MediaType.EPISODE) },
                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-            ) { Text("剧集") }
+            ) { Text(stringResource(R.string.match_type_tv)) }
         }
         Spacer(Modifier.height(8.dp))
 
@@ -261,6 +263,8 @@ private fun SelectedMediaSummary(
     seasonNumber: Int?,
     onClick: () -> Unit,
 ) {
+    val typeLabel = if (media.mediaType == MediaType.EPISODE) stringResource(R.string.match_type_tv) else stringResource(R.string.match_type_movie)
+    val seasonLabel = if (seasonNumber == null) stringResource(R.string.common_season_all) else stringResource(R.string.common_season_n, seasonNumber)
     // 已选区：大海报（2:3）+ 元信息卡片，点击可清除重选
     Surface(
         modifier = Modifier
@@ -287,10 +291,10 @@ private fun SelectedMediaSummary(
                 )
                 Spacer(Modifier.height(4.dp))
                 val metaLabel = buildString {
-                    append(if (media.mediaType == MediaType.EPISODE) "剧集" else "电影")
+                    append(typeLabel)
                     if (media.mediaType == MediaType.EPISODE) {
                         append(" · ")
-                        append(if (seasonNumber == null) "全部季" else "第 $seasonNumber 季")
+                        append(seasonLabel)
                     }
                 }
                 Text(
@@ -344,7 +348,7 @@ private fun MediaSearchSection(
             value = query,
             onValueChange = onSearch,
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("搜索电影或剧集") },
+            placeholder = { Text(stringResource(R.string.edit_match_search_hint)) },
             singleLine = true,
             shape = RoundedCornerShape(12.dp),
             leadingIcon = {
@@ -358,7 +362,7 @@ private fun MediaSearchSection(
         if (results.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
             Text(
-                text = "搜索结果 (${results.size})",
+                text = stringResource(R.string.edit_match_search_results, results.size),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontWeight = FontWeight.SemiBold,
@@ -411,7 +415,7 @@ private fun CandidatePosterCard(candidate: MediaCandidate, onClick: () -> Unit) 
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = if (candidate.mediaType == MediaType.EPISODE) "剧集" else "电影",
+                    text = if (candidate.mediaType == MediaType.EPISODE) stringResource(R.string.match_type_tv) else stringResource(R.string.match_type_movie),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold,
@@ -446,15 +450,14 @@ private fun SeasonPicker(
     onSetSeason: (Int?) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val allSeasonsLabel = stringResource(R.string.common_season_all)
+    val total = numberOfSeasons ?: 0
     // 选项列表：「全部季」+ 1..numberOfSeasons。numberOfSeasons 未拉取时仅显示「全部季」。
-    val options = remember(numberOfSeasons) {
-        buildList {
-            add(null to "全部季")
-            val total = numberOfSeasons ?: 0
-            for (s in 1..total) add(s to "第 $s 季")
-        }
+    val options = buildList {
+        add(null to allSeasonsLabel)
+        for (s in 1..total) add(s to stringResource(R.string.common_season_n, s))
     }
-    val currentLabel = if (season == null) "全部季" else "第 $season 季"
+    val currentLabel = if (season == null) allSeasonsLabel else stringResource(R.string.common_season_n, season)
 
     ExposedDropdownMenuBox(
         expanded = expanded,
@@ -465,7 +468,7 @@ private fun SeasonPicker(
             value = currentLabel,
             onValueChange = {},
             readOnly = true,
-            label = { Text("季") },
+            label = { Text(stringResource(R.string.common_season_label)) },
             trailingIcon = {
                 ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
             },

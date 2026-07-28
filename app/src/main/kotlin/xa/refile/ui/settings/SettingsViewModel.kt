@@ -6,7 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import xa.refile.core.rename.ConflictStrategy
 import xa.refile.data.prefs.SettingsRepository
-import xa.refile.data.repository.TmdbCacheRepository
+import xa.refile.data.repository.TmdbDetailRepository
+import xa.refile.data.repository.TmdbSearchRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -43,7 +44,8 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val settings: SettingsRepository,
-    private val tmdbCache: TmdbCacheRepository,
+    private val tmdbDetail: TmdbDetailRepository,
+    private val tmdbSearch: TmdbSearchRepository,
 ) : ViewModel() {
 
     /** TMDB API Key；未设置返回空串。 */
@@ -167,12 +169,14 @@ class SettingsViewModel @Inject constructor(
     /**
      * 清空全部 TMDB 缓存（设置页"清空 TMDB 缓存"调用）。
      *
-     * 同时清空持久化数据库缓存与会话级内存缓存，结果通过 [cacheCleared] 一次性事件回传文案。
+     * 同时清空持久化数据库缓存（[TmdbDetailRepository.clearCache]）与会话级内存缓存
+     * （[TmdbSearchRepository.clearSessionCache]），结果通过 [cacheCleared] 一次性事件回传文案。
      */
     fun clearTmdbCache() {
         viewModelScope.launch {
             try {
-                tmdbCache.clearCache()
+                tmdbDetail.clearCache()
+                tmdbSearch.clearSessionCache()
                 _cacheCleared.value = "TMDB 缓存已清空"
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t

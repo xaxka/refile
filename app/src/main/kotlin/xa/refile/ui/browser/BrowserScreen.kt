@@ -65,6 +65,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -72,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
+import xa.refile.R
 import xa.refile.core.webdav.MediaFileTypes
 import xa.refile.core.webdav.WebDavEntry
 import xa.refile.ui.common.EmptyState
@@ -124,7 +126,10 @@ fun BrowserScreen(
             TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back),
+                        )
                     }
                 },
                 title = {
@@ -156,10 +161,16 @@ fun BrowserScreen(
                 },
                 actions = {
                     IconButton(onClick = { viewModel.refresh() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "刷新")
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = stringResource(R.string.browser_refresh),
+                        )
                     }
                     IconButton(onClick = { showSortMenu = true }) {
-                        Icon(Icons.Default.Sort, contentDescription = "排序")
+                        Icon(
+                            Icons.Default.Sort,
+                            contentDescription = stringResource(R.string.browser_sort),
+                        )
                     }
                     DropdownMenu(
                         expanded = showSortMenu,
@@ -167,21 +178,36 @@ fun BrowserScreen(
                     ) {
                         val sf = state.sortField
                         DropdownMenuItem(
-                            text = { Text("按名称${if (sf == BrowserViewModel.SortField.NAME) " ✓" else ""}") },
+                            text = {
+                                Text(
+                                    stringResource(R.string.browser_sort_by_name) +
+                                        if (sf == BrowserViewModel.SortField.NAME) " ✓" else "",
+                                )
+                            },
                             onClick = {
                                 viewModel.toggleSort(BrowserViewModel.SortField.NAME)
                                 showSortMenu = false
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text("按大小${if (sf == BrowserViewModel.SortField.SIZE) " ✓" else ""}") },
+                            text = {
+                                Text(
+                                    stringResource(R.string.browser_sort_by_size) +
+                                        if (sf == BrowserViewModel.SortField.SIZE) " ✓" else "",
+                                )
+                            },
                             onClick = {
                                 viewModel.toggleSort(BrowserViewModel.SortField.SIZE)
                                 showSortMenu = false
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text("按时间${if (sf == BrowserViewModel.SortField.TIME) " ✓" else ""}") },
+                            text = {
+                                Text(
+                                    stringResource(R.string.browser_sort_by_time) +
+                                        if (sf == BrowserViewModel.SortField.TIME) " ✓" else "",
+                                )
+                            },
                             onClick = {
                                 viewModel.toggleSort(BrowserViewModel.SortField.TIME)
                                 showSortMenu = false
@@ -189,7 +215,17 @@ fun BrowserScreen(
                         )
                         HorizontalDivider()
                         DropdownMenuItem(
-                            text = { Text(if (state.sortAsc) "切换为降序" else "切换为升序") },
+                            text = {
+                                Text(
+                                    stringResource(
+                                        if (state.sortAsc) {
+                                            R.string.browser_sort_desc
+                                        } else {
+                                            R.string.browser_sort_asc
+                                        },
+                                    ),
+                                )
+                            },
                             onClick = {
                                 viewModel.toggleSortOrder()
                                 showSortMenu = false
@@ -233,7 +269,9 @@ fun BrowserScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             Spacer(Modifier.height(12.dp))
-                            Button(onClick = { viewModel.refresh() }) { Text("重试") }
+                            Button(onClick = { viewModel.refresh() }) {
+                                Text(stringResource(R.string.common_retry))
+                            }
                         }
                     }
                 }
@@ -241,8 +279,8 @@ fun BrowserScreen(
                     // Task 5.5：空目录友好空状态。
                     EmptyState(
                         icon = Icons.Default.Folder,
-                        title = "空文件夹",
-                        subtitle = "此目录没有文件",
+                        title = stringResource(R.string.browser_empty_folder_title),
+                        subtitle = stringResource(R.string.browser_empty_folder_subtitle),
                     )
                 }
                 else -> {
@@ -313,19 +351,30 @@ private fun MultiSelectBottomBar(
 ) {
     BottomAppBar {
         IconButton(onClick = onExit) {
-            Icon(Icons.Default.Close, contentDescription = "退出多选")
+            Icon(
+                Icons.Default.Close,
+                contentDescription = stringResource(R.string.browser_exit_multi_select),
+            )
         }
         Text(
-            text = "已选 $selectedCount",
+            text = stringResource(R.string.browser_selected_count, selectedCount),
             style = MaterialTheme.typography.bodyMedium,
         )
         Spacer(Modifier.weight(1f))
-        TextButton(onClick = onSelectAll) { Text("全选") }
-        TextButton(onClick = onInvert) { Text("反选") }
+        TextButton(onClick = onSelectAll) {
+            Text(stringResource(R.string.browser_select_all))
+        }
+        TextButton(onClick = onInvert) {
+            Text(stringResource(R.string.browser_invert_selection))
+        }
         if (selectedCount > 0) {
             Spacer(Modifier.width(8.dp))
             Button(onClick = onProceed, enabled = !expanding) {
-                Text(if (expanding) "展开中..." else "匹配")
+                Text(
+                    stringResource(
+                        if (expanding) R.string.browser_expanding else R.string.browser_match,
+                    ),
+                )
             }
         }
     }
@@ -364,12 +413,12 @@ private fun MatchTypePickerSheet(
         ) {
             // 标题区：大标题 + 副标题，强对比层级
             Text(
-                text = "选择匹配方式",
+                text = stringResource(R.string.browser_select_match_type),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                text = "选定后开始识别并整理所选文件",
+                text = stringResource(R.string.browser_select_match_type_subtitle),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -382,8 +431,8 @@ private fun MatchTypePickerSheet(
             ) {
                 MatchTypeCard(
                     icon = Icons.Default.AutoAwesome,
-                    title = "自动",
-                    description = "智能识别类型",
+                    title = stringResource(R.string.match_type_auto),
+                    description = stringResource(R.string.match_type_auto_desc),
                     accent = MatchAutoColor,
                     enabled = !expanding,
                     onClick = { onSelect(MatchViewModel.MatchType.AUTO) },
@@ -391,8 +440,8 @@ private fun MatchTypePickerSheet(
                 )
                 MatchTypeCard(
                     icon = Icons.Default.Movie,
-                    title = "电影",
-                    description = "单部电影文件",
+                    title = stringResource(R.string.match_type_movie),
+                    description = stringResource(R.string.match_type_movie_desc),
                     accent = MatchMovieColor,
                     enabled = !expanding,
                     onClick = { onSelect(MatchViewModel.MatchType.MOVIE) },
@@ -400,8 +449,8 @@ private fun MatchTypePickerSheet(
                 )
                 MatchTypeCard(
                     icon = Icons.Default.Tv,
-                    title = "剧集",
-                    description = "电视剧与番剧",
+                    title = stringResource(R.string.match_type_tv),
+                    description = stringResource(R.string.match_type_tv_desc),
                     accent = MatchTvColor,
                     enabled = !expanding,
                     onClick = { onSelect(MatchViewModel.MatchType.TV) },
@@ -413,7 +462,7 @@ private fun MatchTypePickerSheet(
             if (expanding) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 Text(
-                    text = "正在展开目录…",
+                    text = stringResource(R.string.browser_expanding_dir),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

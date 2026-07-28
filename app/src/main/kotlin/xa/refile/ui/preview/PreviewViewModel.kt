@@ -20,7 +20,7 @@ import xa.refile.core.webdav.MediaFileTypes
 import xa.refile.core.webdav.WebDavClient
 import xa.refile.data.prefs.SettingsRepository
 import xa.refile.data.repository.ServerRepository
-import xa.refile.data.repository.TmdbCacheRepository
+import xa.refile.data.repository.TmdbDetailRepository
 import xa.refile.ui.match.MatchViewModel
 import xa.refile.worker.RenameWorkScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -60,7 +60,7 @@ class PreviewViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val presetRepo: PresetRepository,
     private val workScheduler: RenameWorkScheduler,
-    private val tmdbCache: TmdbCacheRepository,
+    private val tmdbDetail: TmdbDetailRepository,
 ) : ViewModel() {
 
     /** 预览项状态：自动✅ / 待确认⚠️ / 冲突❌。 */
@@ -588,7 +588,7 @@ class PreviewViewModel @Inject constructor(
     /**
      * Task 3.4：待确认项就地确认——拉取候选详情转为已匹配，重新渲染该条 PreviewItem 并重检冲突。
      *
-     * 用 [tmdbCache] 拉详情（[fetchDetail]），把对应 [MatchViewModel.FileMatch] 更新为
+     * 用 [tmdbDetail] 拉详情（[fetchDetail]），把对应 [MatchViewModel.FileMatch] 更新为
      * [MatchViewModel.MatchStatus.CONFIRMED] 后用渲染上下文快照重渲染。
      */
     fun confirmPending(filePath: String, candidate: MatchCandidate) {
@@ -673,8 +673,8 @@ class PreviewViewModel @Inject constructor(
     // ---- Task 3.4：待确认项就地确认的详情拉取（与 MatchViewModel.fetchDetail 同语义） ----
 
     /**
-     * 拉详情：电影 → [TmdbCacheRepository.getMovie]；剧集 → [TmdbCacheRepository.getTv] +
-     * [TmdbCacheRepository.getSeason] 填 [MediaMetadata.seasonNumber]/[MediaMetadata.episodeNumbers] 等。
+     * 拉详情：电影 → [TmdbDetailRepository.getMovie]；剧集 → [TmdbDetailRepository.getTv] +
+     * [TmdbDetailRepository.getSeason] 填 [MediaMetadata.seasonNumber]/[MediaMetadata.episodeNumbers] 等。
      *
      * 季号解析顺序：显式 parsed.season > 绝对集号按季累加定位 (season, episodeInSeason) > 回退 1。
      */
@@ -685,7 +685,7 @@ class PreviewViewModel @Inject constructor(
     ): MediaMetadata {
         val id = candidate.tmdbId
         return if (candidate.mediaType == MediaType.EPISODE) {
-            val tv = tmdbCache.getTv(id, language)
+            val tv = tmdbDetail.getTv(id, language)
             var seasonNumber = parsed.season
             var episodes = parsed.episodes
             if (seasonNumber == null && parsed.isAbsoluteEpisode && episodes.isNotEmpty()) {
@@ -699,7 +699,7 @@ class PreviewViewModel @Inject constructor(
                 tv.copy(seasonNumber = finalSeason)
             } else {
                 val season = try {
-                    tmdbCache.getSeason(id, finalSeason, language)
+                    tmdbDetail.getSeason(id, finalSeason, language)
                 } catch (t: Throwable) {
                     if (t is kotlinx.coroutines.CancellationException) throw t
                     null
@@ -719,7 +719,7 @@ class PreviewViewModel @Inject constructor(
                 )
             }
         } else {
-            tmdbCache.getMovie(id, language)
+            tmdbDetail.getMovie(id, language)
         }
     }
 
@@ -735,7 +735,7 @@ class PreviewViewModel @Inject constructor(
         var remaining = absEp
         for (s in 1..maxSeason) {
             val season = try {
-                tmdbCache.getSeason(tvId, s, language)
+                tmdbDetail.getSeason(tvId, s, language)
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 null

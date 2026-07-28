@@ -1,0 +1,21 @@
+# EditorConfig（Task 22，供 ktlint 读取）。
+# ktlint 默认强制 4 空格缩进、无尾随空格、文件末尾换行；这里覆盖最大行长与若干
+# 关闭规则以适配项目既有风格（Compose trailing-comma、import 排序交由 IDE）。
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{kt,kts}]
+max_line_length = 140
+# 项目大量使用通配导入（Compose icons 等），暂不强制。
+ktlint_standard_no-wildcard-imports = disabled
+# 允许文件末尾多余空行 / 函数间空行灵活度（既有风格）。
+ktlint_standard_blank-line-before-declaration = disabled
+
+[*.{xml,yml,yaml,md}]
+indent_size = 2

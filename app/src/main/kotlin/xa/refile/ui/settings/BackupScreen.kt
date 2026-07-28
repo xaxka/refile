@@ -47,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -54,6 +55,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import xa.refile.R
 import xa.refile.data.backup.ImportResult
 
 /**
@@ -122,10 +124,10 @@ fun BackupScreen(
             TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
-                title = { Text("备份与恢复") },
+                title = { Text(stringResource(R.string.backup_title)) },
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -148,24 +150,24 @@ fun BackupScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.CloudUpload, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.size(8.dp))
-                        Text("导出备份", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.backup_export_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     }
                     Text(
-                        "将服务器、设置与模板导出为 JSON。历史与缓存不纳入备份。",
+                        stringResource(R.string.backup_export_desc),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     OutlinedTextField(
                         value = passphrase,
                         onValueChange = viewModel::setPassphrase,
-                        label = { Text("口令（可选）") },
+                        label = { Text(stringResource(R.string.backup_passphrase)) },
                         singleLine = true,
                         leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                         trailingIcon = {
                             IconButton(onClick = { showPassphrase = !showPassphrase }) {
                                 Icon(
                                     if (showPassphrase) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = if (showPassphrase) "隐藏口令" else "显示口令",
+                                    contentDescription = if (showPassphrase) stringResource(R.string.backup_hide_passphrase) else stringResource(R.string.backup_show_passphrase),
                                 )
                             }
                         },
@@ -181,7 +183,7 @@ fun BackupScreen(
                         )
                         Spacer(Modifier.size(8.dp))
                         Text(
-                            "包含服务器密码",
+                            stringResource(R.string.backup_include_passwords),
                             style = MaterialTheme.typography.bodyMedium,
                             color = if (passphrase.isNotBlank())
                                 MaterialTheme.colorScheme.onSurface
@@ -190,7 +192,7 @@ fun BackupScreen(
                     }
                     if (passphrase.isBlank()) {
                         Text(
-                            "未设置口令将导出明文备份，且不含服务器密码。",
+                            stringResource(R.string.backup_no_passphrase_warning),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -204,7 +206,7 @@ fun BackupScreen(
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                             Spacer(Modifier.size(8.dp))
                         }
-                        Text(if (exporting) "导出中…" else "导出")
+                        Text(if (exporting) stringResource(R.string.backup_exporting) else stringResource(R.string.backup_export))
                     }
                 }
             }
@@ -218,10 +220,10 @@ fun BackupScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.FileUpload, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.size(8.dp))
-                        Text("导入备份", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.backup_import_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     }
                     Text(
-                        "选择备份文件后解析变更预览，确认无误再落库。导入失败不破坏现有配置。",
+                        stringResource(R.string.backup_import_desc),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -234,7 +236,7 @@ fun BackupScreen(
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                             Spacer(Modifier.size(8.dp))
                         }
-                        Text(if (importing) "解析中…" else "选择备份文件")
+                        Text(if (importing) stringResource(R.string.backup_parsing) else stringResource(R.string.backup_select_file))
                     }
 
                     // 变更预览
@@ -268,23 +270,23 @@ private fun ImportPreviewCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("导入预览", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.backup_import_preview), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
-            PreviewLine("新增服务器", changes.newServers)
-            PreviewLine("覆盖服务器", changes.overwrittenServers)
-            PreviewLine("删除服务器", changes.removedServers)
-            PreviewLine("设置", if (changes.settingsChanged) "将变更" else "无变化")
+            PreviewLine(stringResource(R.string.backup_new_servers), changes.newServers)
+            PreviewLine(stringResource(R.string.backup_overwritten_servers), changes.overwrittenServers)
+            PreviewLine(stringResource(R.string.backup_removed_servers), changes.removedServers)
+            PreviewLine(stringResource(R.string.common_settings), if (changes.settingsChanged) stringResource(R.string.backup_will_change) else stringResource(R.string.backup_no_change))
             Spacer(Modifier.height(4.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("取消") }
+                OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.common_cancel)) }
                 Button(
                     onClick = onApply,
                     enabled = applyEnabled,
                     modifier = Modifier.weight(1f),
-                ) { Text("应用导入") }
+                ) { Text(stringResource(R.string.backup_apply_import)) }
             }
         }
     }

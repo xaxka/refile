@@ -1,0 +1,53 @@
+# Detekt 配置（Task 22）。
+# buildUponDefaultConfig = true：在默认规则集之上覆盖以下阈值。
+# 目标是捕获真实风格/潜在问题，而非对历史代码吹毛求疵；CI 中手动触发运行。
+# 阈值结合现有代码体量设定，避免一启用就海量告警失去信号价值。
+
+style:
+  # 项目内大量中文 KDoc / 字符串，单行较长，放宽到 140。
+  MaxLineLength:
+    maxLineLength: 140
+    excludePackageStatements: true
+    excludeImportStatements: true
+  # 现有代码偶有通配导入（Compose 等），先告警不阻断。
+  WildcardImport:
+    active: false
+  # 允许 data class / DTO 使用通配导入以外的宽松命名。
+  FunctionOnlyReturningConstant:
+    active: false
+
+complexity:
+  # 现有 ViewModel / Repository 单类行数较大，先放宽，后续重构再收紧。
+  TooLongFunction:
+    threshold: 120
+  ComplexMethod:
+    threshold: 25
+  LargeClass:
+    threshold: 700
+  LongMethod:
+    threshold: 120
+  LongParameterList:
+    functionThreshold: 8
+    constructorThreshold: 9
+  ComplexCondition:
+    threshold: 5
+
+naming:
+  FunctionMaxLength:
+    maxFunctionLength: 40
+
+exceptions:
+  # 允许在协程边界捕获 Throwable 做兜底（项目既有模式）。
+  TooGenericExceptionCaught:
+    active: false
+  SwallowedException:
+    active: false
+
+empty-blocks:
+  # 协程 launch {} 等场景允许空块（已有 catch 兜底）。
+  EmptyFunctionBlock:
+    active: false
+
+formatting:
+  # 与 ktlint 重复，由 ktlint 统一管，避免双重告警。
+  active: false

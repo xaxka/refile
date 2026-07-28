@@ -21,6 +21,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.util.logging.Level
+import java.util.logging.Logger
 
 /**
  * 基于 dav4jvm（OkHttp）的 WebDAV 客户端（计划 §M1 SubTask 1.2.1）。
@@ -141,7 +143,7 @@ class WebDavClient(
             // 405 既可能是目录已存在，也可能是服务器不支持 MKCOL。两种含义此处都视为幂等成功
             // （上层重命名流程依赖目录存在即可）；如需区分需查 Allow 头，暂不引入。
             if (e.code == 405) {
-                println("WebDavClient.mkcol: 405 on $path, assuming collection already exists")
+                logger.log(Level.FINE, "mkcol: 405 on {0}, assuming collection already exists", path)
                 true
             } else {
                 false
@@ -246,6 +248,9 @@ class WebDavClient(
     }
 
     companion object {
+        // 纯 JVM 模块用 JUL（Timber/Android Log 不可用）；调试级日志，默认不输出。
+        private val logger = Logger.getLogger(WebDavClient::class.java.name)
+
         // SimpleDateFormat 非线程安全，用 ThreadLocal 隔离（多协程并发在 IO 上调用）。
         private val HTTP_DATE_FORMAT = ThreadLocal.withInitial {
             SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.US).apply {

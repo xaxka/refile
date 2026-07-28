@@ -8,7 +8,8 @@ import xa.refile.core.tmdb.Episode
 import xa.refile.core.tmdb.SeasonDetail
 import xa.refile.core.tmdb.TmdbImages
 import xa.refile.data.prefs.SettingsRepository
-import xa.refile.data.repository.TmdbCacheRepository
+import xa.refile.data.repository.TmdbDetailRepository
+import xa.refile.data.repository.TmdbSearchRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -34,20 +35,21 @@ import javax.inject.Inject
  * 保存后由 EditMatchScreen 回写 [MatchSessionViewModel]。本 VM 不直接持有会话 VM，
  * 避免跨 ViewModel 注入复杂度（Hilt 不便将一个 @HiltViewModel 注入另一个）。
  *
- * 缓存：所有 TMDB 请求走 [TmdbCacheRepository]（详情类请求 7 天数据库缓存，搜索类会话级
- * 内存缓存），避免重复网络请求。设置页「清空 TMDB 缓存」可清空。
+ * 缓存：搜索类请求走 [TmdbSearchRepository]（会话级内存缓存），详情类请求走
+ * [TmdbDetailRepository]（7 天数据库缓存），避免重复网络请求。设置页「清空 TMDB 缓存」可清空。
  *
  * 剧集季选择：选定剧集后拉 TV 详情获取 [UiState.numberOfSeasons]，季选择器列出
  * 1..numberOfSeasons 供用户选择（避免猜错季号导致 404）。用户不选具体季（null=全部）时，
  * 合并加载所有季集列表供展示，保存时遍历查找匹配季。
  *
- * 安全：API Key 仅从 [SettingsRepository] 读取（经 [TmdbCacheRepository] 内部构造 TmdbClient），
+ * 安全：API Key 仅从 [SettingsRepository] 读取（经 [TmdbClientProvider] 内部构造 TmdbClient），
  * 不进 UI 状态或日志。
  */
 @HiltViewModel
 class EditMatchViewModel @Inject constructor(
     private val settings: SettingsRepository,
-    private val tmdbCache: TmdbCacheRepository,
+    private val tmdbSearch: TmdbSearchRepository,
+    private val tmdbDetail: TmdbDetailRepository,
 ) : ViewModel() {
 
     /** UI 友好的集信息（从 TMDB [Episode] 映射）。 */
@@ -163,7 +165,7 @@ class EditMatchViewModel @Inject constructor(
 
     /**
      * 影视候选搜索（电影/剧集标题）。手动 debounce 350ms，避免连击打爆 API。
-     * 空查询清空结果。走 [TmdbCacheRepository] 会话级内存缓存。
+     * 空查询清空结果。走 [TmdbSearchRepository] 会话级内存缓存。
      */
     fun searchMedia(query: String) {
         _uiState.update { it.copy(mediaSearchQuery = query) }
@@ -181,9 +183,9 @@ class EditMatchViewModel @Inject constructor(
                 val language = settings.language.first()
                 val type = _uiState.value.mediaType
                 val results = if (type == MediaType.EPISODE) {
-                    tmdbCache.searchTv(q, null, language)
+                    tmdbSearch.searchTv(q, null, language)
                 } else {
-                    tmdbCache.searchMovie(q, null, language)
+                    tmdbSearch.searchMovie(q, null, language)
                 }
                 val candidates = results.map { it.toMediaCandidate(type) }
                 _uiState.update { it.copy(mediaSearchResults = candidates, loading = false) }
@@ -285,7 +287,7 @@ class EditMatchViewModel @Inject constructor(
                 checkApiKeyOrError() ?: return@launch
                 val language = settings.language.first()
                 val tv = try {
-                    tmdbCache.getTv(tvId, language)
+                    tmdbDetail.getTv(tvId, language)
                 } catch (t: Throwable) {
                     if (t is kotlinx.coroutines.CancellationException) throw t
                     null
@@ -316,14 +318,14 @@ class EditMatchViewModel @Inject constructor(
         }
     }
 
-    /** 加载某季集列表（Task 2.5.1/2.5.3）。走 [TmdbCacheRepository] 数据库缓存。 */
+    /** 加载某季集列表（Task 2.5.1/2.5.3）。走 [TmdbDetailRepository] 数据库缓存。 */
     fun loadSeason(tvId: Int, season: Int) {
         _uiState.update { it.copy(seasonNumber = season, loading = true, error = null) }
         viewModelScope.launch {
             try {
                 checkApiKeyOrError() ?: return@launch
                 val language = settings.language.first()
-                val detail = tmdbCache.getSeason(tvId, season, language)
+                val detail = tmdbDetail.getSeason(tvId, season, language)
                 val episodes = detail.episodes.map { it.toEpisodeInfo() }
                 _uiState.update {
                     it.copy(episodeList = episodes, loading = false)
@@ -351,7 +353,7 @@ class EditMatchViewModel @Inject constructor(
                 val allEpisodes = mutableListOf<EpisodeInfo>()
                 for (season in 1..total) {
                     val detail = runCatching {
-                        tmdbCache.getSeason(tvId, season, language)
+                        tmdbDetail.getSeason(tvId, season, language)
                     }.getOrNull() ?: continue
                     detail.episodes.map { it.toEpisodeInfo() }.forEach { ep ->
                         allEpisodes.add(ep.copy(seasonNumber = detail.seasonNumber ?: season))
@@ -408,7 +410,7 @@ class EditMatchViewModel @Inject constructor(
                         s.numberOfSeasons,
                     )
                 } else {
-                    tmdbCache.getMovie(media.tmdbId, language)
+                    tmdbDetail.getMovie(media.tmdbId, language)
                 }
                 val edited = current.copy(
                     status = MatchViewModel.MatchStatus.CONFIRMED,
@@ -440,7 +442,7 @@ class EditMatchViewModel @Inject constructor(
 
     /**
      * 校验 API Key 是否已配置；空 key 写错误并返回 null，调用方据此提前返回。
-     * 实际 [TmdbClient] 由 [TmdbCacheRepository] 内部按 apiKey/baseUrl 构造。
+     * 实际 [TmdbClient] 由 [TmdbClientProvider] 内部按 apiKey/baseUrl 构造。
      */
     private suspend fun checkApiKeyOrError(): Boolean? {
         val apiKey = settings.apiKey.first()
@@ -465,9 +467,9 @@ class EditMatchViewModel @Inject constructor(
         language: String,
         numberOfSeasons: Int?,
     ): MediaMetadata {
-        val tv = tmdbCache.getTv(tvId, language)
+        val tv = tmdbDetail.getTv(tvId, language)
         val (resolvedSeason, season) = if (seasonNumber != null) {
-            seasonNumber to runCatching { tmdbCache.getSeason(tvId, seasonNumber, language) }.getOrNull()
+            seasonNumber to runCatching { tmdbDetail.getSeason(tvId, seasonNumber, language) }.getOrNull()
         } else {
             // 「全部季」：遍历所有季查找包含所选集号的季
             findSeasonContainingEpisodes(tvId, episodes, numberOfSeasons, language)
@@ -503,7 +505,7 @@ class EditMatchViewModel @Inject constructor(
         val maxSeason = numberOfSeasons ?: return 1 to null
         if (maxSeason <= 0 || episodes.isEmpty()) return 1 to null
         for (s in 1..maxSeason) {
-            val season = runCatching { tmdbCache.getSeason(tvId, s, language) }.getOrNull() ?: continue
+            val season = runCatching { tmdbDetail.getSeason(tvId, s, language) }.getOrNull() ?: continue
             val epNums = season.episodes.mapNotNull { it.episodeNumber }.toSet()
             if (episodes.all { it in epNums }) return s to season
         }

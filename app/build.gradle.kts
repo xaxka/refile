@@ -9,6 +9,8 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kapt)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.detekt)
+    alias(libs.plugins.ktlint)
 }
 
 android {
@@ -129,4 +131,10 @@ dependencies {
     testImplementation(libs.robolectric)
 
     androidTestImplementation(libs.androidx.junit)
+}
+
+detekt {
+    buildUponDefaultConfig = true
+    config.setFrom(rootProject.files("config/detekt/detekt.yml"))
+    parallel = true
 }
