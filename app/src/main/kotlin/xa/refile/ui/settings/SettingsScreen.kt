@@ -38,6 +38,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -49,6 +50,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -521,6 +523,16 @@ private fun SwitchSettingsRow(
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                // 打开时只显示主题色：轨道为 primary（浅蓝），滑块用白色避免黑色
+                checkedTrackColor = MaterialTheme.colorScheme.primary,
+                checkedThumbColor = MaterialTheme.colorScheme.surface,
+                checkedBorderColor = Color.Transparent,
+                // 关闭时同样去除黑色边框/滑块，保持浅色清爽
+                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                uncheckedThumbColor = MaterialTheme.colorScheme.surface,
+                uncheckedBorderColor = Color.Transparent,
+            ),
         )
     }
 }
