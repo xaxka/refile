@@ -502,4 +502,163 @@ class TemplateEngineTest {
         val r = engine(media = MediaMetadata(name = "A:B")).render("{n.colon('-')}")
         assertThat(r.path).isEqualTo("A-B")
     }
+
+    // ---- Feature #7：日期格式化修饰符 ----
+
+    @Test fun `dateFormat default pattern yyyy-MM-dd`() {
+        val r = engine(media = MediaMetadata(type = MediaType.EPISODE, episodeAirDates = listOf("2023-01-15")))
+            .render("{airdate|dateFormat}")
+        assertThat(r.path).isEqualTo("2023-01-15")
+    }
+
+    @Test fun `dateFormat custom pattern dots`() {
+        val r = engine(media = MediaMetadata(type = MediaType.EPISODE, episodeAirDates = listOf("2023-01-15")))
+            .render("{airdate|dateFormat(yyyy.MM.dd)}")
+        assertThat(r.path).isEqualTo("2023.01.15")
+    }
+
+    @Test fun `dateFormat custom pattern slashes`() {
+        val r = engine(media = MediaMetadata(type = MediaType.EPISODE, episodeAirDates = listOf("2023-01-15")))
+            .render("{airdate|dateFormat(dd/MM/yyyy)}")
+        assertThat(r.path).isEqualTo("15/01/2023")
+    }
+
+    @Test fun `dateFormat handles ISO datetime input`() {
+        val r = engine(media = MediaMetadata(type = MediaType.EPISODE, episodeAirDates = listOf("2023-01-15T10:30:00Z")))
+            .render("{airdate|dateFormat(yyyy.MM.dd)}")
+        assertThat(r.path).isEqualTo("2023.01.15")
+    }
+
+    @Test fun `dateFormat invalid date returns original`() {
+        // 无法解析的日期 → 原样返回（容错，不崩溃）
+        val r = engine(media = MediaMetadata(type = MediaType.EPISODE, episodeAirDates = listOf("not-a-date")))
+            .render("{airdate|dateFormat(yyyy.MM.dd)}")
+        assertThat(r.path).isEqualTo("not-a-date")
+    }
+
+    @Test fun `dateFormat missing date renders empty`() {
+        // 无日期数据 → 变量解析为 null → 渲染为空
+        val r = engine(media = MediaMetadata(type = MediaType.EPISODE))
+            .render("{airdate|dateFormat(yyyy.MM.dd)}")
+        assertThat(r.path).isEmpty()
+    }
+
+    // ---- Feature #8：首字母分文件夹修饰符 ----
+
+    @Test fun `firstChar returns uppercase first letter`() {
+        val r = engine(media = MediaMetadata(name = "Avatar")).render("{n|firstChar}")
+        assertThat(r.path).isEqualTo("A")
+    }
+
+    @Test fun `firstChar strips leading article`() {
+        // The Avatar → 排序名 Avatar, The → 首字母 A
+        val r = engine(media = MediaMetadata(name = "The Avatar")).render("{n|firstChar}")
+        assertThat(r.path).isEqualTo("A")
+    }
+
+    @Test fun `firstChar used as directory segment`() {
+        // 经典用法：{n|firstChar}/{n} ({y})/{n} ({y})
+        val r = engine(media = MediaMetadata(name = "Avatar", year = 2009))
+            .render("{n|firstChar}/{n} ({y})/{n} ({y})")
+        assertThat(r.path).isEqualTo("A/Avatar (2009)/Avatar (2009)")
+    }
+
+    @Test fun `firstChar handles number start`() {
+        // 数字开头 → 原样返回首字符
+        val r = engine(media = MediaMetadata(name = "12 Monkeys")).render("{n|firstChar}")
+        assertThat(r.path).isEqualTo("1")
+    }
+
+    // ---- Feature #9：条件块 ----
+
+    @Test fun `conditional block renders when condition truthy`() {
+        // y 存在 → 渲染 ({y})
+        val r = engine(media = MediaMetadata(name = "Avatar", year = 2009))
+            .render("{?y}({y}){/?}")
+        assertThat(r.path).isEqualTo("(2009)")
+    }
+
+    @Test fun `conditional block omits when condition falsy`() {
+        // y 缺失 → 整段省略
+        val r = engine(media = MediaMetadata(name = "Avatar"))
+            .render("{?y}({y}){/?}")
+        assertThat(r.path).isEmpty()
+    }
+
+    @Test fun `conditional block with else branch`() {
+        // y 存在 → 渲染 yes 分支
+        val r1 = engine(media = MediaMetadata(name = "Avatar", year = 2009))
+            .render("{?y}({y}){:}No Year{/?}")
+        assertThat(r1.path).isEqualTo("(2009)")
+
+        // y 缺失 → 渲染 no 分支
+        val r2 = engine(media = MediaMetadata(name = "Avatar"))
+            .render("{?y}({y}){:}No Year{/?}")
+        assertThat(r2.path).isEqualTo("No Year")
+    }
+
+    @Test fun `conditional block negation`() {
+        // {!y} → y 缺失时为真
+        val r1 = engine(media = MediaMetadata(name = "Avatar"))
+            .render("{?!y}No Year{/?}")
+        assertThat(r1.path).isEqualTo("No Year")
+
+        // y 存在 → {!y} 为假 → 省略
+        val r2 = engine(media = MediaMetadata(name = "Avatar", year = 2009))
+            .render("{?!y}No Year{/?}")
+        assertThat(r2.path).isEmpty()
+    }
+
+    @Test fun `conditional block nested`() {
+        // 嵌套条件块：外层 y 为真，内层 s 为假
+        val r = engine(media = MediaMetadata(name = "Lost", year = 2004))
+            .render("{?y}{?s}S{s}E{e}{/?}{/?}")
+        assertThat(r.path).isEmpty() // s 缺失 → 内层省略 → 外层渲染为空
+
+        // 嵌套条件块：外层 y 为真，内层 s 为真
+        val r2 = engine(media = MediaMetadata(
+            type = MediaType.EPISODE, name = "Lost", year = 2004,
+            seasonNumber = 1, episodeNumbers = listOf(1),
+        )).render("{?y}{?s}S{s}E{e}{/?}{/?}")
+        assertThat(r2.path).isEqualTo("S1E1")
+    }
+
+    @Test fun `conditional block in full template`() {
+        // 实际模板：有年份加括号，无年份不加
+        val withYear = engine(media = MediaMetadata(name = "Avatar", year = 2009))
+            .render("{n}{?y} ({y}){/?}")
+        assertThat(withYear.path).isEqualTo("Avatar (2009)")
+
+        val withoutYear = engine(media = MediaMetadata(name = "Avatar"))
+            .render("{n}{?y} ({y}){/?}")
+        assertThat(withoutYear.path).isEqualTo("Avatar")
+    }
+
+    @Test fun `conditional block old syntax with trailing question mark still works`() {
+        // 向后兼容：{?y?} 旧语法（带尾 ?）
+        val r = engine(media = MediaMetadata(name = "Avatar", year = 2009))
+            .render("{?y?}({y}){/?}")
+        assertThat(r.path).isEqualTo("(2009)")
+    }
+
+    // ---- Feature #21：编译缓存 ----
+
+    @Test fun `compile cache produces same result on repeated render`() {
+        // 同一模板多次渲染，结果一致（缓存不改变行为）
+        // 注：分隔符用 - 而非 |（| 是非法文件名字符，会被默认 NamingOptions 替换）
+        val e = engine(media = MediaMetadata(name = "Avatar", year = 2009))
+        val template = "{n.clean()}-{y}-{n|upper}"
+        val r1 = e.render(template)
+        val r2 = e.render(template)
+        assertThat(r1.path).isEqualTo(r2.path)
+        assertThat(r1.path).isEqualTo("Avatar-2009-AVATAR")
+    }
+
+    @Test fun `compile cache handles different templates`() {
+        val e = engine(media = MediaMetadata(name = "Avatar", year = 2009))
+        val r1 = e.render("{n|upper}")
+        val r2 = e.render("{n|lower}")
+        assertThat(r1.path).isEqualTo("AVATAR")
+        assertThat(r2.path).isEqualTo("avatar")
+    }
 }

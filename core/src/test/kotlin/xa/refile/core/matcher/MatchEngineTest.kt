@@ -1008,4 +1008,84 @@ class MatchEngineTest {
         // 验证不报错且分数合理（≥ 0.8 因标题完全匹配）
         assertThat(score).isAtLeast(0.8)
     }
+
+    // ---- Feature #14：双高分局检测 ----
+
+    @Test fun `Feature14 double high score forces needs confirm`() {
+        // 两个候选都 >= 0.95 → 强制 NeedsConfirm（即便分差 >= margin）
+        // 参考 tmm MovieScrapeTask L237-270
+        // 注意：候选年份不能 == parsedYear（否则触发硬信号 Auto 绕过双高检测）
+        // 用 year=2018/2019（±2 内，penalty≤0.012）避免硬信号
+        val parsed = ParsedFilename(
+            title = "It", year = 2017, season = 1, episodes = listOf(1),
+            mediaType = MediaType.EPISODE,
+        )
+        val candidates = listOf(
+            MatchCandidate(
+                tmdbId = 1, name = "It", year = 2018, popularity = 100.0,
+                season = 1, episodes = listOf(1), mediaType = MediaType.EPISODE,
+            ),
+            MatchCandidate(
+                tmdbId = 2, name = "It", year = 2019, popularity = 100.0,
+                season = 1, episodes = listOf(1), mediaType = MediaType.EPISODE,
+            ),
+        )
+        val decision = engine.match(parsed, candidates)
+        // 两个候选标题完全相等 + SxE 完整命中 + 高 popularity → score clamped to 1.0
+        // 两个都 >= 0.95 → NeedsConfirm
+        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
+    }
+
+    @Test fun `Feature14 single high score still auto matches`() {
+        // 只有一个候选 >= 0.95 → 正常 Auto（双高检测不触发）
+        // 注意：year=2018≠parsedYear=2017 避免硬信号路径，走正常打分
+        val parsed = ParsedFilename(
+            title = "It", year = 2017, season = 1, episodes = listOf(1),
+            mediaType = MediaType.EPISODE,
+        )
+        val candidates = listOf(
+            MatchCandidate(
+                tmdbId = 1, name = "It", year = 2018, popularity = 100.0,
+                season = 1, episodes = listOf(1), mediaType = MediaType.EPISODE,
+            ),
+            MatchCandidate(tmdbId = 2, name = "Aftersun", year = 2022, popularity = 5.0),
+        )
+        val decision = engine.match(parsed, candidates)
+        // 只有候选1得高分 → 不触发双高 → Auto
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+    }
+
+    @Test fun `Feature14 configurable threshold`() {
+        // 使用更低的阈值 → 更多场景触发双高
+        // 注意：年份不能与 parsed 完全相等（否则触发硬信号 Auto 绕过双高检测）
+        // 用 year=2000/1998（±1 容差内，penalty=0）避免硬信号
+        val engine = MatchEngine(doubleHighThreshold = 0.80)
+        val parsed = ParsedFilename(title = "The Matrix", year = 1999)
+        val candidates = listOf(
+            MatchCandidate(tmdbId = 1, name = "The Matrix", year = 2000, popularity = 50.0),
+            MatchCandidate(tmdbId = 2, name = "The Matrix", year = 1998, popularity = 50.0),
+        )
+        val decision = engine.match(parsed, candidates)
+        // 两个候选标题完全相等 + 年份差1（penalty=0）→ score ≈ 0.87 >= 0.80 → NeedsConfirm
+        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
+    }
+
+    @Test fun `Feature14 does not trigger when second candidate below threshold`() {
+        // best >= 0.95 但 second < 0.95 → 不触发双高 → 正常 Auto
+        // 注意：year=2018≠parsedYear=2017 避免硬信号路径
+        val parsed = ParsedFilename(
+            title = "It", year = 2017, season = 1, episodes = listOf(1),
+            mediaType = MediaType.EPISODE,
+        )
+        val candidates = listOf(
+            MatchCandidate(
+                tmdbId = 1, name = "It", year = 2018, popularity = 100.0,
+                season = 1, episodes = listOf(1), mediaType = MediaType.EPISODE,
+            ),
+            MatchCandidate(tmdbId = 2, name = "It Chapter Two", year = 2019, popularity = 5.0),
+        )
+        val decision = engine.match(parsed, candidates)
+        // best 高分但 second 低分 → Auto
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+    }
 }

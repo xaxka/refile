@@ -391,11 +391,17 @@ class ConfidenceScorer(
  *
  * Feature #28（年份差异淘汰）：年份差超过 [HARD_YEAR_TOLERANCE] 且标题不完全相等 → 直接淘汰，
  * 不进候选列表。避免 2010 年的 `Inception` 候选把 1999 年的 `Inception`（同名单曲）拉进待确认列表挤占排序。
+ *
+ * Feature #14（双高分局检测）：两个或以上候选得分同时 ≥ [doubleHighThreshold] 时，
+ * 强制 NeedsConfirm 而非自动选择。参考 tmm `MovieScrapeTask` — 两个候选都接近满分
+ * 意味着可能存在同名片/同名剧（如 1990 vs 2024 的 `It`），此时应由用户裁决。
  */
 class MatchEngine(
     private val scorer: ConfidenceScorer = ConfidenceScorer(),
     private val autoThreshold: Double = 0.82,   // P0.8
     private val margin: Double = 0.08,          // P0.8
+    /** Feature #14：双高分局阈值，两个候选都 ≥ 此值时强制 NeedsConfirm。 */
+    private val doubleHighThreshold: Double = 0.95,
 ) {
     fun match(parsed: ParsedFilename, candidates: List<MatchCandidate>): MatchDecision {
         if (candidates.isEmpty()) return MatchDecision.NoMatch
@@ -435,6 +441,12 @@ class MatchEngine(
         val best = scored.first()
         val second = scored.getOrNull(1)
         val secondGap = best.score - (second?.score ?: 0.0)
+
+        // Feature #14：双高分局检测 — 两个候选都 >= doubleHighThreshold 时强制 NeedsConfirm
+        // 参考tmm MovieScrapeTask：两个候选都接近满分意味着可能存在同名片/同名剧，应由用户裁决
+        if (scored.size >= 2 && best.score >= doubleHighThreshold && second!!.score >= doubleHighThreshold) {
+            return MatchDecision.NeedsConfirm(scored)
+        }
 
         // P3.0 同分破平局：best 与次名分差 < margin/2 时，对排序后的列表用破平局 comparator 重排
         val tieBroken = if (secondGap < margin / 2.0) {
