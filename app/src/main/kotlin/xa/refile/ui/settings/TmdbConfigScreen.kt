@@ -135,7 +135,7 @@ fun TmdbConfigScreen(
                 },
                 label = { Text("API Key") },
                 singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
+                leadingIcon = { Icon(Icons.Default.Key, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                 trailingIcon = {
                     IconButton(onClick = { showApiKey = !showApiKey }) {
                         Icon(
@@ -188,7 +188,7 @@ fun TmdbConfigScreen(
                 onValueChange = { proxyUrlInput = it },
                 label = { Text(stringResource(R.string.tmdb_config_proxy_label)) },
                 singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
+                leadingIcon = { Icon(Icons.Default.Link, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
             )

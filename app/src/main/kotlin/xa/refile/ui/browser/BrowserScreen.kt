@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -589,7 +590,17 @@ private fun BrowserEntryRow(
             contentAlignment = Alignment.Center,
         ) {
             if (multiSelectMode && (isSelectableVideo || entry.isCollection)) {
-                Checkbox(checked = isSelected, onCheckedChange = { onToggle() })
+                // Checkbox 选中态默认对勾用 onPrimary（近黑），与浅蓝 primary 框搭配不美观，
+                // 这里改为白色对勾 + 主题色框，与 Switch 风格保持一致。
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onToggle() },
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = MaterialTheme.colorScheme.primary,
+                        uncheckedColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        checkmarkColor = MaterialTheme.colorScheme.surface,
+                    ),
+                )
             } else {
                 Icon(
                     imageVector = icon,
