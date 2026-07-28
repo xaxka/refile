@@ -30,7 +30,7 @@ import javax.inject.Singleton
  * 安全：apiKey 仅在此读取用于构造 [TmdbClient]，不落盘、不进入日志。
  */
 @Singleton
-internal class TmdbClientProvider @Inject constructor(
+class TmdbClientProvider @Inject constructor(
     private val settings: SettingsRepository,
 ) {
 
