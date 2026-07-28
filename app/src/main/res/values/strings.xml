@@ -36,6 +36,7 @@
     <string name="server_edit_hide_password">隐藏密码</string>
     <string name="server_edit_show_password">显示密码</string>
     <string name="server_edit_auth_type">认证方式</string>
+    <string name="server_edit_auth_auto">自动</string>
     <string name="server_edit_testing">测试中...</string>
     <string name="server_edit_test_connection">测试连接</string>
     <string name="server_edit_save_failed">保存失败</string>

@@ -161,7 +161,7 @@ fun ServerEditScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 listOf(
-                    "auto" to stringResource(R.string.match_type_auto),
+                    "auto" to stringResource(R.string.server_edit_auth_auto),
                     "basic" to "Basic",
                     "digest" to "Digest",
                 ).forEach { (value, label) ->
