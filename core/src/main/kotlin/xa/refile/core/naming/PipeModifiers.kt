@@ -1,11 +1,15 @@
 package xa.refile.core.naming
 
+import java.time.LocalDate
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 import java.util.regex.PatternSyntaxException
 
 /**
  * 管道修饰符（计划 §5.5 管道修饰符表，全部自实现，可链式 `{n|upper|space(_)}`）。
  *
- * 大小写 / 补零取整 / 字符替换 / 截取匹配 / 命名变换 / 清洗转写 / 列表。
+ * 大小写 / 补零取整 / 字符替换 / 截取匹配 / 命名变换 / 清洗转写 / 列表 / 日期格式化 / 首字母。
  */
 object PipeModifiers {
 
@@ -142,6 +146,14 @@ object PipeModifiers {
                     else -> value.toStr()
                 }
             }
+            // Feature #7：日期格式化（参考 tmm NamedDateRenderer）
+            // 用法：{airdate|dateFormat(yyyy.MM.dd)} → 2023.01.15
+            // 默认模式 yyyy-MM-dd；支持 ISO 日期（2023-01-15）与 ISO 日期时间（2023-01-15T10:30:00Z）
+            "dateFormat" -> formatDate(value.toStr(), args.getOrNull(0) ?: "yyyy-MM-dd")
+            // Feature #8：首字母（参考 tmm MovieNamedFirstCharacterRenderer）
+            // 用法：{n|firstChar}/{n} ({y})/{n} ({y}) → A/Avatar (2009)/Avatar (2009)
+            // 取去冠词排序名首字母并大写；非字母字符（如数字开头）原样返回
+            "firstChar" -> firstChar(value.toStr())
             else -> value // 未知修饰符：原样返回（容错）
         }
     }
@@ -226,5 +238,44 @@ object PipeModifiers {
             while (x >= v) { sb.append(sym); x -= v }
         }
         return sb.toString()
+    }
+
+    /**
+     * Feature #7：日期格式化。
+     *
+     * 支持输入：
+     * - ISO 日期 `2023-01-15`
+     * - ISO 日期时间 `2023-01-15T10:30:00Z` / `2023-01-15T10:30:00+02:00`
+     *
+     * 解析失败时原样返回 value（容错，不崩溃）。
+     * 模式串非法时原样返回 value（避免 IllegalArgumentException 中断渲染）。
+     */
+    private fun formatDate(value: String, pattern: String): String {
+        // 优先尝试 LocalDate（纯日期，最常见场景）
+        val temporal = tryParseLocalDate(value) ?: tryParseZonedDateTime(value) ?: return value
+        return try {
+            DateTimeFormatter.ofPattern(pattern).format(temporal)
+        } catch (e: IllegalArgumentException) {
+            value
+        }
+    }
+
+    private fun tryParseLocalDate(value: String): LocalDate? =
+        runCatching { LocalDate.parse(value) }.getOrNull()
+
+    private fun tryParseZonedDateTime(value: String): ZonedDateTime? =
+        runCatching { ZonedDateTime.parse(value) }.getOrNull()
+
+    /**
+     * Feature #8：取首字母作为目录分桶键。
+     *
+     * 去冠词排序名首字母大写：`The Avatar` → 排序名 `Avatar, The` → 首字母 `A`。
+     * 非字母开头（数字、符号）原样返回首字符：`12 Monkeys` → `1`、`$haq` → `$`。
+     */
+    private fun firstChar(value: String): String {
+        if (value.isEmpty()) return ""
+        val sorted = sortName(value)
+        val first = sorted.firstOrNull() ?: return ""
+        return first.toString().uppercase()
     }
 }

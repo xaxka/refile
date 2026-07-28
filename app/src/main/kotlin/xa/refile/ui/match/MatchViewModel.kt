@@ -8,6 +8,8 @@ import xa.refile.core.matcher.MatchCandidate
 import xa.refile.core.matcher.MatchDecision
 import xa.refile.core.matcher.MatchEngine
 import xa.refile.core.matcher.ScoredCandidate
+import xa.refile.core.matcher.SeriesNameMatcher
+import xa.refile.core.matcher.VideoListResolver
 import xa.refile.core.model.MediaType
 import xa.refile.core.naming.MediaMetadata
 import xa.refile.core.parser.FilenameParser
@@ -115,6 +117,10 @@ class MatchViewModel @Inject constructor(
     private val parser = FilenameParser()
     private val engine = MatchEngine()
     private val scorer = ConfidenceScorer()
+    // Feature #23 / #24：批处理预取用，从一批文件名中找公共剧名 / 把多版本电影归组，
+    // 让批量匹配只发一次搜索请求复用给全部文件，避免逐文件 searchTv 发 N 次网络请求。
+    private val seriesMatcher = SeriesNameMatcher()
+    private val videoListResolver = VideoListResolver()
 
     /** 接收浏览器选中的视频完整路径列表。 */
     fun setFiles(files: List<String>) {
@@ -166,6 +172,13 @@ class MatchViewModel @Inject constructor(
      * 1. 读 API Key（空 → 报错不进行）。
      * 2. 逐文件解析 → 判定类型 → 搜索 → 决策 → 拉详情。
      * 3. 实时更新 [Progress.Running] 与 results/pending。
+     *
+     * Feature #23 / #24 批处理预取：
+     * - TV 文件：用 [SeriesNameMatcher] 从文件名中提取公共剧名，每个剧名只发 1 次 [TmdbCacheRepository.searchTv]，
+     *   同剧多集文件共享候选列表（避免逐文件 `searchTv("Show")` 发 N 次请求；并抗单文件噪音）。
+     * - 电影文件：用 [VideoListResolver] 把多版本归组（同标题同年份），每组发 1 次 [TmdbCacheRepository.searchMovie]，
+     *   组内文件共享候选 + 在命名时统一加版本标记。
+     * - 预取失败的文件回退到 [runMatchForFile] 的 per-file 搜索（[preFetchedCandidates] = null）。
      */
     fun startMatch(forceType: MatchType) {
         val files = _uiState.value.selectedFiles
@@ -194,19 +207,34 @@ class MatchViewModel @Inject constructor(
             }
             val language = settings.language.first()
 
+            // Feature #23 / #24：批量预取候选
+            // 1. 一次性解析所有文件 → parsedByIndex
+            // 2. TV 文件用 SeriesNameMatcher 找公共剧名 → 每个剧名一次 searchTv
+            // 3. 电影文件用 VideoListResolver 归组 → 每组一次 searchMovie
+            // 4. 后续 per-file 走 runMatchForFile，命中预取的文件直接复用候选，
+            //    未命中（预取失败 / 多剧混合中未归到任何剧）回退到原 per-file 搜索
+            val parsedByIndex = files.map { parser.parse(it.substringAfterLast('/')) }
+            val types = parsedByIndex.map { resolveType(forceType, it) }
+
+            val tvCandidatesByFileIdx = preFetchTvCandidates(parsedByIndex, types, files, language)
+            val movieCandidatesByFileIdx = preFetchMovieCandidates(parsedByIndex, types, language)
+
             val results = mutableListOf<FileMatch>()
             val pending = mutableListOf<FileMatch>()
 
             files.forEachIndexed { index, path ->
-                val fileName = path.substringAfterLast('/')
-                val parsed = parser.parse(fileName)
-                val type = resolveType(forceType, parsed)
-
+                val p = parsedByIndex[index]
+                val type = types[index]
+                val preFetched = when (type) {
+                    MatchType.TV -> tvCandidatesByFileIdx[index]
+                    MatchType.MOVIE -> movieCandidatesByFileIdx[index]
+                    else -> null
+                }
                 val fm = try {
-                    runMatchForFile(tmdbCache, parsed, type, language, path)
+                    runMatchForFile(tmdbCache, p, type, language, path, preFetched)
                 } catch (t: Throwable) {
                     if (t is kotlinx.coroutines.CancellationException) throw t
-                    FileMatch(path, parsed, MatchStatus.NO_MATCH, error = t.message ?: "未知错误")
+                    FileMatch(path, p, MatchStatus.NO_MATCH, error = t.message ?: "未知错误")
                 }
 
                 if (fm.status == MatchStatus.AUTO || fm.status == MatchStatus.CONFIRMED) {
@@ -224,6 +252,99 @@ class MatchViewModel @Inject constructor(
             }
             _uiState.update { it.copy(progress = Progress.Done) }
         }
+    }
+
+    /**
+     * Feature #23：批量预取 TV 候选。
+     *
+     * 对所有 TV 类型文件用 [SeriesNameMatcher] 找公共剧名 → 每个剧名 1 次 [TmdbCacheRepository.searchTv]。
+     * 同剧多集文件（如 `Show.S01E01.mkv` ~ `Show.S01E03.mkv`）共享同一候选列表，
+     * 避免逐文件发 searchTv("Show") 共 N 次请求；并抵消单文件名噪音（如某个文件多带了 `1080p.BluRay.x264-GROUP`
+     * 让 [FilenameParser] 误解析为别的标题）。
+     *
+     * 返回：fileIndex → 共享的 [MediaMetadata] 列表（已 [TmdbCacheRepository] 自动走 sessionCache 去重）。
+     * 未归到任何剧的 TV 文件不在返回 map 中（调用方走 per-file 搜索）。
+     */
+    private suspend fun preFetchTvCandidates(
+        parsedByIndex: List<ParsedFilename>,
+        types: List<MatchType>,
+        files: List<String>,
+        language: String,
+    ): Map<Int, List<MediaMetadata>> {
+        val tvFileIndices = parsedByIndex.indices.filter { types[it] == MatchType.TV }
+        if (tvFileIndices.size < 2) return emptyMap()  // 单文件无"公共"可言，走 per-file 路径
+
+        val tvFileNames = tvFileIndices.map { files[it].substringAfterLast('/') }
+        val seriesResult = seriesMatcher.match(tvFileNames)
+        if (seriesResult.seriesNames.isEmpty()) return emptyMap()
+
+        // 每个剧名并发预取一次 searchTv（剧名间无依赖；sessionCache 也会去重相同 query）
+        val seriesCandidates = coroutineScope {
+            seriesResult.seriesNames.associateWith { sn ->
+                async {
+                    runCatching { tmdbCache.searchTv(sn, year = null, language = language) }
+                        .getOrNull() ?: emptyList()
+                }
+            }.mapValues { it.value.await() }
+        }
+        // 把剧名共享的候选分发给到该剧下的每个 TV 文件
+        val out = mutableMapOf<Int, List<MediaMetadata>>()
+        for ((sn, localIdxList) in seriesResult.fileIndices) {
+            val cands = seriesCandidates[sn] ?: continue
+            for (localIdx in localIdxList) {
+                if (localIdx in tvFileIndices.indices) {
+                    out[tvFileIndices[localIdx]] = cands
+                }
+            }
+        }
+        return out
+    }
+
+    /**
+     * Feature #24：批量预取电影候选。
+     *
+     * 对所有 MOVIE 类型文件用 [VideoListResolver] 归组（按归一标题 + 年份）→ 每组 1 次
+     * [TmdbCacheRepository.searchMovie]（query=primary.title, year=primary.year）。
+     * 组内文件（不同分辨率 / 编码 / HDR）共享同一候选列表，避免逐文件搜索 + 重复打分；
+     * primary 用组内最高画质版本（用于 TMDB 搜索 query 来源稳定）。
+     *
+     * 单文件组（无多版本）不预取（避免无收益的网络往返）→ 走 per-file 搜索。
+     *
+     * 返回：fileIndex → 共享的 [MediaMetadata] 列表。
+     */
+    private suspend fun preFetchMovieCandidates(
+        parsedByIndex: List<ParsedFilename>,
+        types: List<MatchType>,
+        language: String,
+    ): Map<Int, List<MediaMetadata>> {
+        val movieFileIndices = parsedByIndex.indices.filter { types[it] == MatchType.MOVIE }
+        if (movieFileIndices.size < 2) return emptyMap()
+
+        val movieParsed = movieFileIndices.map { parsedByIndex[it] }
+        val groups = videoListResolver.resolve(movieParsed)
+        // 仅对多文件组预取（单文件组无收益）
+        val multiFileGroups = groups.filter { it.files.size >= 2 }
+        if (multiFileGroups.isEmpty()) return emptyMap()
+
+        val groupCandidates = coroutineScope {
+            multiFileGroups.map { g ->
+                async {
+                    val q = g.title.takeIf { it.isNotBlank() } ?: return@async g to emptyList()
+                    val cands = runCatching { tmdbCache.searchMovie(q, g.year, language) }
+                        .getOrNull() ?: emptyList()
+                    g to cands
+                }
+            }.map { it.await() }
+        }
+        val out = mutableMapOf<Int, List<MediaMetadata>>()
+        for ((g, cands) in groupCandidates) {
+            for (localIdx in g.fileIndices) {
+                if (localIdx in movieFileIndices.indices) {
+                    out[movieFileIndices[localIdx]] = cands
+                }
+            }
+        }
+        return out
     }
 
     /** 强制 > 自动（按季/集推断）。 */
@@ -270,6 +391,9 @@ class MatchViewModel @Inject constructor(
      *
      * P2.2：若首决策为 NeedsConfirm 且 parsed 携带 SxE，预拉 top 候选的季详情做 SxE 互校，
      * 命中则填充 candidate.season/episodes 重打分，可能升级为 Auto。
+     *
+     * Feature #23 / #24：[preFetchedCandidates] 非空时跳过 per-file 搜索（候选已由批量预取步骤提供，
+     * 如 [SeriesNameMatcher] / [VideoListResolver] 派发的同剧 / 同片共享候选）；为空则回退到原 per-file 搜索。
      */
     private suspend fun runMatchForFile(
         tmdbCache: TmdbCacheRepository,
@@ -277,6 +401,7 @@ class MatchViewModel @Inject constructor(
         type: MatchType,
         language: String,
         filePath: String,
+        preFetchedCandidates: List<MediaMetadata>? = null,
     ): FileMatch {
         // P3.0：Provider ID 短路（tmdbId > tvdbId > imdbId）。
         // matchByIds 内部检查 parsed 是否携带任一 ID；未携带或 lookup 返回 null 时返回 null，调用方回退。
@@ -327,19 +452,27 @@ class MatchViewModel @Inject constructor(
             // 短路未命中（matchByIds 返回 null）→ 回退到 search + score 路径
         }
 
-        val title = parsed.title?.takeIf { it.isNotBlank() } ?: ""
-        // P2.6：主标题 + 别名分别搜 TMDB，合并去重候选（中英混合文件名 `寒战1994 Cold War` 场景）。
-        // 多个关键词并发搜索（受共享限流器 + 请求合并约束），单文件匹配延迟从 Σ(latency) 降为 max(latency)。
-        val searchTitles = listOf(title) + parsed.titleAliases.filter { it.isNotBlank() }
-        val searchResults = coroutineScope {
-            searchTitles.map { q ->
-                async {
-                    if (type == MatchType.TV) tmdbCache.searchTv(q, parsed.year, language)
-                    else tmdbCache.searchMovie(q, parsed.year, language)
-                }
-            }.awaitAll()
-        }.flatMap { it }.distinctBy { it.id }
-        val candidates = searchResults.map { it.toMatchCandidate() }
+        // Feature #23 / #24：批量预取候选命中 → 跳过 per-file 搜索；否则回退到原 per-file 搜索路径。
+        val searchResults: List<MediaMetadata>
+        val candidates: List<MatchCandidate>
+        if (preFetchedCandidates != null) {
+            searchResults = preFetchedCandidates
+            candidates = preFetchedCandidates.map { it.toMatchCandidate() }
+        } else {
+            val title = parsed.title?.takeIf { it.isNotBlank() } ?: ""
+            // P2.6：主标题 + 别名分别搜 TMDB，合并去重候选（中英混合文件名 `寒战1994 Cold War` 场景）。
+            // 多个关键词并发搜索（受共享限流器 + 请求合并约束），单文件匹配延迟从 Σ(latency) 降为 max(latency)。
+            val searchTitles = listOf(title) + parsed.titleAliases.filter { it.isNotBlank() }
+            searchResults = coroutineScope {
+                searchTitles.map { q ->
+                    async {
+                        if (type == MatchType.TV) tmdbCache.searchTv(q, parsed.year, language)
+                        else tmdbCache.searchMovie(q, parsed.year, language)
+                    }
+                }.awaitAll()
+            }.flatMap { it }.distinctBy { it.id }
+            candidates = searchResults.map { it.toMatchCandidate() }
+        }
         val decision = engine.match(parsed, candidates)
         // P2.2：SxE 互校 — NeedsConfirm 时若 parsed 有 SxE，预拉季详情验证后重打分
         val finalDecision = if (decision is MatchDecision.NeedsConfirm) {
