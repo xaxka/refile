@@ -1,0 +1,33 @@
+refile — Open Source Notices
+=============================
+
+This product includes open source software. The corresponding license
+texts and (where applicable) upstream source are listed below.
+
+------------------------------------------------------------------------------
+1. dav4jvm  —  https://github.com/bitfireAT/dav4jvm
+   Version: 2.2.1
+   License: Mozilla Public License 2.0 (MPL-2.0)
+   Upstream source: https://github.com/bitfireAT/dav4jvm
+
+   dav4jvm is used by the WebDAV client module (core/.../webdav) for
+   PROPFIND/MOVE/MKCOL XML construction, MultiStatus parsing and
+   Basic/Digest authentication. It is shipped in compiled form inside
+   this APK.
+
+   MPL-2.0 §3.3 disclosure: the Source Code Form of dav4jvm is available
+   from the upstream repository above for at least six (6) months from
+   the date of distribution of this copy of the product.
+
+   MPL-2.0 full text: https://mozilla.org/MPL/2.0/
+------------------------------------------------------------------------------
+
+All other third-party dependencies (AndroidX, Kotlin Coroutines /
+Serialization / Datetime, OkHttp, Retrofit, Coil, Hilt, Room, WorkManager,
+etc.) are distributed under their respective licenses (Apache-2.0 or
+compatible); their copyright notices and license texts ship as part of
+those libraries.
+
+This product uses the TMDB API but is not endorsed or certified by TMDB.
+Poster and backdrop images are sourced from TMDB; all rights remain with
+their respective copyright holders.

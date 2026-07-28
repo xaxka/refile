@@ -196,6 +196,16 @@ fun TmdbConfigScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            // 免责说明：反代用于绕过 DNS 污染，仅作为网络可达性手段，使用风险与合规由用户自负。
+            Text(
+                text = "免责声明：本反代功能仅用于在网络受 DNS 污染时恢复对 TMDB 官方 API " +
+                    "的可达性，不提供任何内容加速、解锁或翻墙能力，也不代表本应用对反代服务" +
+                    "的安全性、隐私政策或可用性作出任何担保。请自行部署或选择可信的反代服务，" +
+                    "因使用第三方反代导致的 API Key 泄露、数据被截留、服务异常或合规风险，" +
+                    "由用户自行承担。使用前请确认其符合您所在地区的法律法规及 TMDB 服务条款。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             HorizontalDivider()
 
