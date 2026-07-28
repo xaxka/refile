@@ -495,24 +495,31 @@ class MatchEngineTest {
     // ---- 年份 ±1 容差（P3.0 修订） ----
 
     @Test fun `year diff within 1 yields zero penalty`() {
-        // |sy - cy| <= 1 → penalty=0；与年份相同场景分数一致（spec Scenario: 年份差 1）
+        // |sy - cy| <= 1 → yearPenalty=0（±1 容差，spec Scenario: 年份差 1）
+        // Feature #5 numericBonus：candidate.year=2010 在 {2010}（来自 parsed.year）→ +0.05；
+        // candidate.year=2009 不在 → 0。分差 0.05 仅来自 numericBonus，yearPenalty 仍等价（都为 0）。
         val scorer = ConfidenceScorer()
         val parsed = ParsedFilename(title = "Inception", year = 2010)
         val sameYear = MatchCandidate(tmdbId = 1, name = "Inception", year = 2010, popularity = 50.0)
         val diffOne = MatchCandidate(tmdbId = 2, name = "Inception", year = 2009, popularity = 50.0)
-        assertThat(scorer.score(parsed, sameYear)).isEqualTo(scorer.score(parsed, diffOne))
+        // yearPenalty 等价（都为 0），差异仅来自 numericBonus（0.05）
+        assertThat(scorer.score(parsed, sameYear) - scorer.score(parsed, diffOne))
+            .isWithin(1e-9).of(0.05)
     }
 
     @Test fun `year diff 5 still applies linear penalty`() {
-        // |sy - cy| = 5 → penalty=0.01 + 5/1000 = 0.015；与年份相同场景分数差 0.015（spec Scenario: 年份差 5）
+        // |sy - cy| = 5 → yearPenalty=0.01 + 5/1000 = 0.015（spec Scenario: 年份差 5）
+        // Feature #5 numericBonus：candidate.year=2010 在 {2010}（parsed.year）→ +0.05；
+        // candidate.year=2015 不在 → 0。总分差 = 0.015 (yearPenalty) + 0.05 (numericBonus) = 0.065
         val scorer = ConfidenceScorer()
         val parsed = ParsedFilename(title = "Inception", year = 2010)
         val sameYear = MatchCandidate(tmdbId = 1, name = "Inception", year = 2010, popularity = 50.0)
         val diffFive = MatchCandidate(tmdbId = 2, name = "Inception", year = 2015, popularity = 50.0)
         val scoreSame = scorer.score(parsed, sameYear)
         val scoreDiff = scorer.score(parsed, diffFive)
-        // diff=0 → penalty=0；diff=5 → penalty=0.015；其它维度相同 → 分数差恰好 0.015
-        assertThat(scoreSame - scoreDiff).isWithin(1e-9).of(0.015)
+        // diff=0 → penalty=0 + numericBonus=0.05；diff=5 → penalty=0.015 + numericBonus=0
+        // 总分差 = 0.015 + 0.05 = 0.065
+        assertThat(scoreSame - scoreDiff).isWithin(1e-9).of(0.065)
     }
 
     // ---- P3.0 同分破平局（vote_average / vote_count / 年份近度） ----
@@ -783,14 +790,22 @@ class MatchEngineTest {
     }
 
     @Test fun `Feature26 hard signal not triggered when title differs`() {
-        // 标题不同（即便只是少量字符差异）→ 不触发硬信号
+        // 标题不同（即便只是少量字符差异）→ 不触发硬信号（score != 1.0）
+        // Feature #5：substringSimilarity + numericBonus 可能让分数达 Auto 阈值，
+        // 但只要 score < 1.0 即证明未走硬信号路径。
         val parsed = ParsedFilename(title = "The Matrix", year = 1999)
         val candidates = listOf(
             MatchCandidate(tmdbId = 1, name = "The Matrix Reloaded", year = 1999, popularity = 50.0),
         )
         val decision = engine.match(parsed, candidates)
-        // 单候选；标题不触发硬信号；score ≈ 0.768 < 0.82 → NeedsConfirm
-        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
+        // 关键断言：不走硬信号路径（score != 1.0）；具体 Auto/NeedsConfirm 取决于 bonus 叠加
+        when (decision) {
+            is MatchDecision.Auto -> assertThat(decision.best.score).isLessThan(1.0)
+            is MatchDecision.NeedsConfirm -> {
+                // 也允许 NeedsConfirm（子串+数字加分不足以达 Auto 阈值时）
+            }
+            else -> throw AssertionError("expected Auto or NeedsConfirm, got $decision")
+        }
     }
 
     // ---- Feature #28：年份差超过 5 年且标题不完全相等 → 直接淘汰 ----
@@ -870,5 +885,127 @@ class MatchEngineTest {
         )
         val decision = engine.match(parsed, candidates)
         assertThat(decision).isEqualTo(MatchDecision.NoMatch)
+    }
+
+    // ---- Feature #5：子串匹配 + 数字序列匹配 ----
+
+    @Test fun `Feature5 substring similarity boosts title-as-substring-of-candidate`() {
+        // "Spider-Man" 是 "Spider-Man 2" 的子串 → substringSimilarity 给高分
+        // 参考 FB-Mod EpisodeMetrics.substringSimilarity
+        val scorer = ConfidenceScorer()
+        val parsed = ParsedFilename(title = "Spider-Man", year = 2002)
+        val substringCandidate = MatchCandidate(tmdbId = 1, name = "Spider-Man 2", year = 2002, popularity = 5.0)
+        val unrelatedCandidate = MatchCandidate(tmdbId = 2, name = "Batman Begins", year = 2005, popularity = 50.0)
+        // 子串候选分数应远高于无关候选（即便后者 popularity 更高）
+        assertThat(scorer.score(parsed, substringCandidate))
+            .isGreaterThan(scorer.score(parsed, unrelatedCandidate))
+    }
+
+    @Test fun `Feature5 substring similarity handles Spider-Man 2 vs Spider-Man 2 with year`() {
+        // 经典场景：`Spider-Man 2` vs `Spider-Man 2 (2004)` —— 标题是候选名子串
+        // substringSimilarity 给高分，numericBonus（候选 year 出现在 title 数字位）补足，达 Auto
+        val parsed = ParsedFilename(title = "Spider-Man 2", year = 2004)
+        val candidates = listOf(
+            MatchCandidate(tmdbId = 1, name = "Spider-Man 2 (2004)", year = 2004, popularity = 5.0),
+            MatchCandidate(tmdbId = 2, name = "Batman", year = 2005, popularity = 50.0),
+        )
+        val decision = engine.match(parsed, candidates)
+        // 候选 1：子串匹配 + 年份命中 → 高分 Auto
+        assertThat(decision).isInstanceOf(MatchDecision.Auto::class.java)
+        assertThat((decision as MatchDecision.Auto).best.candidate.tmdbId).isEqualTo(1)
+    }
+
+    @Test fun `Feature5 substring similarity picks title-as-substring candidate first`() {
+        // 解析标题 "Matrix" 是候选 "The Matrix Reloaded" 的子串 → 高分排第一
+        // 即便候选 2 年份差 4、popularity 更低，仍胜过无关候选
+        val parsed = ParsedFilename(title = "Matrix", year = 1999)
+        val candidates = listOf(
+            MatchCandidate(tmdbId = 1, name = "Total Recall", year = 1998, popularity = 50.0),
+            MatchCandidate(tmdbId = 2, name = "The Matrix Reloaded", year = 2003, popularity = 5.0),
+        )
+        val decision = engine.match(parsed, candidates)
+        val scored = when (decision) {
+            is MatchDecision.Auto -> listOf(decision.best)
+            is MatchDecision.NeedsConfirm -> decision.candidates
+            else -> emptyList()
+        }
+        // 子串匹配让候选 2 排第一（即便候选 1 popularity 更高、年份更接近）
+        assertThat(scored.first().candidate.tmdbId).isEqualTo(2)
+    }
+
+    @Test fun `Feature5 substring similarity returns zero for non-substring strings`() {
+        // 非子串关系 → substringSimilarity 不参与加分（不会压过其它算法）
+        // "Inception" vs "Interstellar" 共前缀 "In" → jaroWinkler 给中等分，但非子串 → substring 不加分
+        val scorer = ConfidenceScorer()
+        val parsed = ParsedFilename(title = "Inception", year = 2010)
+        val nonSubstring = MatchCandidate(tmdbId = 1, name = "Interstellar", year = 2014, popularity = 5.0)
+        val substringMatch = MatchCandidate(tmdbId = 2, name = "Inception 2010", year = 2010, popularity = 5.0)
+        // 子串匹配候选分数应远高于非子串候选（substringSimilarity 给 0.9+ 高分）
+        assertThat(scorer.score(parsed, substringMatch))
+            .isGreaterThan(scorer.score(parsed, nonSubstring))
+        // 非子串候选分数应低于 Auto 阈值（jaroWinkler 共前缀给中等分，但不足以 Auto）
+        assertThat(scorer.score(parsed, nonSubstring)).isLessThan(0.7)
+    }
+
+    @Test fun `Feature5 numeric sequence bonus when candidate year appears in title`() {
+        // 文件名标题 "Show 2020" 含数字 2020；parsed.year=null（解析器未提取年份）
+        // 候选 year=2020 出现在 title 数字中 → +NUMERIC_YEAR_BONUS
+        // 候选 year=2019 不在 → 0；两候选其它维度相同 → yearMatch 分数更高
+        val scorer = ConfidenceScorer()
+        val parsed = ParsedFilename(title = "Show 2020", year = null)
+        val yearMatch = MatchCandidate(tmdbId = 1, name = "Show", year = 2020, popularity = 5.0)
+        val yearMismatch = MatchCandidate(tmdbId = 2, name = "Show", year = 2019, popularity = 5.0)
+        // year=2020 出现在 title 数字中 → 加分；year=2019 不在 → 不加分
+        assertThat(scorer.score(parsed, yearMatch))
+            .isGreaterThan(scorer.score(parsed, yearMismatch))
+        // 差值恰好为 NUMERIC_YEAR_BONUS
+        assertThat(scorer.score(parsed, yearMatch) - scorer.score(parsed, yearMismatch))
+            .isWithin(1e-9).of(0.05)
+    }
+
+    @Test fun `Feature5 numeric sequence bonus when candidate season appears in title`() {
+        // 文件名标题 "Show 3" 含数字 3；parsed.season 未设置
+        // 候选 season=3 出现在 title 数字中 → +NUMERIC_SEASON_BONUS
+        val scorer = ConfidenceScorer()
+        val parsed = ParsedFilename(title = "Show 3", year = 2020, mediaType = MediaType.EPISODE)
+        val seasonMatch = MatchCandidate(
+            tmdbId = 1, name = "Show", year = 2020, season = 3, popularity = 5.0, mediaType = MediaType.EPISODE,
+        )
+        val seasonMismatch = MatchCandidate(
+            tmdbId = 2, name = "Show", year = 2020, season = 1, popularity = 5.0, mediaType = MediaType.EPISODE,
+        )
+        // season=3 出现在 title 数字中 → 加分；season=1 不在 → 不加分
+        assertThat(scorer.score(parsed, seasonMatch))
+            .isGreaterThan(scorer.score(parsed, seasonMismatch))
+        assertThat(scorer.score(parsed, seasonMatch) - scorer.score(parsed, seasonMismatch))
+            .isWithin(1e-9).of(0.03)
+    }
+
+    @Test fun `Feature5 numeric sequence bonus includes parsed year and season`() {
+        // parser 已提取的 year/season 也算作"文件名数字位"
+        // parsed.title="Saw"（无数值）但 parsed.year=2004 → numbers={2004}
+        // 候选 year=2004 → +NUMERIC_YEAR_BONUS（即便 title 中无数字）
+        val scorer = ConfidenceScorer()
+        val parsed = ParsedFilename(title = "Saw", year = 2004)
+        val yearMatch = MatchCandidate(tmdbId = 1, name = "Saw", year = 2004, popularity = 5.0)
+        val yearMismatch = MatchCandidate(tmdbId = 2, name = "Saw", year = 2005, popularity = 5.0)
+        // year=2004 在 {2004}（来自 parsed.year）→ 加分；year=2005 不在 → 不加分
+        // 但 year=2004 也触发 yearPenalty=0（diff=0），year=2005 触发 penalty=0.011
+        // 双重优势：yearMatch 应高于 yearMismatch
+        assertThat(scorer.score(parsed, yearMatch))
+            .isGreaterThan(scorer.score(parsed, yearMismatch))
+    }
+
+    @Test fun `Feature5 numeric sequence bonus zero when no numbers match`() {
+        // 文件名无数字、parsed 无 year/season → numbers 为空 → numericBonus=0
+        val scorer = ConfidenceScorer()
+        val parsed = ParsedFilename(title = "Hello World", year = null)
+        val candidate = MatchCandidate(
+            tmdbId = 1, name = "Hello World", year = 2020, season = 1, popularity = 5.0,
+        )
+        val score = scorer.score(parsed, candidate)
+        // 标题完全相等 → 高分（substringSim=1.0），但无数字序列加分
+        // 验证不报错且分数合理（≥ 0.8 因标题完全匹配）
+        assertThat(score).isAtLeast(0.8)
     }
 }

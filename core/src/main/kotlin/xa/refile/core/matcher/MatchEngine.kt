@@ -48,15 +48,17 @@ sealed class MatchDecision {
 
 /**
  * 置信度评分器（计划 §5.4-3，P0.5-P0.8 + P2.1-P2.3 重构）：
- * `score = titleScore * TITLE_WEIGHT - yearPenalty + popBonus + sxeBonus`
+ * `score = titleScore * TITLE_WEIGHT - yearPenalty + popBonus + sxeBonus + numericBonus`
  *
  * - P0.5：年份惩罚（线性，替代二值 YEAR_BONUS）。|diff|≤1 → 0（±1 容差，覆盖发行年/DVD 年/片中年份差 1）；diff=30 → 0.04；diff>100 → 0.11 封顶。
- * - P0.6：标题相似度取 max(name, originalName, alias) 三维度，其中 name/originalName 各取 max(Jaccard, Levenshtein, Dice bigram, Jaro-Winkler, yearStripped)，alias 取 4 种相似度 max。
+ * - P0.6：标题相似度取 max(name, originalName, alias) 三维度，其中 name/originalName 各取 max(Jaccard, Levenshtein, Dice bigram, Jaro-Winkler, yearStripped, substring)（6 种），alias 取 5 种相似度 max（无 yearStripped）。
  * - P0.7：归一化阶段 NFD 分解 + 去变音符号（Amélie → Amelie）。
  * - P0.8：TITLE_WEIGHT=0.85, autoThreshold=0.82, margin=0.08。
  * - P2.1：可选分数量化 `quantize(score) = floor(score * 4) / 4`，构造参数 [quantize] 控制。
  * - P2.2：SxE 互校 — parsed 与 candidate 的 season/episodes 命中时加 [SXE_BONUS]。
  * - P2.3：归一化去除前导冠词 the/a/an，让 `The Matrix` 与 `Matrix, The` 高分。
+ * - Feature #5：标题相似度新增 [substringSimilarity]（标题是候选名子串时给高分，解决 `Spider-Man 2` vs `Spider-Man 2 2004` 场景）；
+ *   新增 [numericSequenceBonus] —— 从文件名数字位校验候选 year/season，命中加分（与 sxeBonus 互补）。
  *
  * 纯 Kotlin 无 Android 依赖（`java.text.Normalizer` 在 JDK 与 Android API 1+ 均可用）。
  */
@@ -76,7 +78,8 @@ class ConfidenceScorer(
         val yPenalty = yearPenalty(parsed.year, candidate.year)
         val popBonus = candidate.popularity.coerceAtMost(MAX_POP).let { it / MAX_POP * POP_WEIGHT }
         val sxeBonus = sxeBonus(parsed, candidate) // P2.2
-        val raw = titleScore * TITLE_WEIGHT - yPenalty + popBonus + sxeBonus
+        val numericBonus = numericSequenceBonus(parsed, candidate) // Feature #5
+        val raw = titleScore * TITLE_WEIGHT - yPenalty + popBonus + sxeBonus + numericBonus
         val clamped = raw.coerceIn(0.0, 1.0)
         return if (quantize) quantize(clamped) else clamped
     }
@@ -101,14 +104,18 @@ class ConfidenceScorer(
                 editDistanceRatio(title, it),
                 diceBigram(title, it),
                 jaroWinkler(title, it),
+                substringSimilarity(title, it), // Feature #5
             )
         } ?: 0.0
         return maxOf(nameSim, originalNameSim, aliasSim)
     }
 
     /**
-     * 对单个候选名（candidate.name 或 candidate.originalName）跑 5 种相似度算法
-     * （Jaccard / Levenshtein / Dice bigram / Jaro-Winkler / yearStripped）并取 max。
+     * 对单个候选名（candidate.name 或 candidate.originalName）跑 6 种相似度算法
+     * （Jaccard / Levenshtein / Dice bigram / Jaro-Winkler / yearStripped / substring）并取 max。
+     *
+     * Feature #5：新增 [substringSimilarity] —— 当标题是候选名子串（或反之）时给高分，
+     * 解决 Jaccard/Dice 在 `Spider-Man 2` vs `Spider-Man 2 2004` 这类场景下的偏差。
      */
     private fun nameSimilarityMax(title: String, candidateName: String): Double {
         val jaccard = tokenOverlap(title, candidateName)
@@ -116,7 +123,8 @@ class ConfidenceScorer(
         val dice = diceBigram(title, candidateName)
         val jw = jaroWinkler(title, candidateName)
         val yearStripped = yearStrippedSim(title, candidateName)
-        return maxOf(jaccard, leven, dice, jw, yearStripped)
+        val substring = substringSimilarity(title, candidateName) // Feature #5
+        return maxOf(jaccard, leven, dice, jw, yearStripped, substring)
     }
 
     /**
@@ -292,6 +300,63 @@ class ConfidenceScorer(
     private fun removeYearTokens(normalized: String): String =
         normalized.split(' ').filter { it.length != 4 || it.toIntOrNull() !in 1900..2099 }.joinToString(" ")
 
+    /**
+     * Feature #5：子串相似度（参考 FB-Mod `EpisodeMetrics.substringSimilarity`）。
+     *
+     * 当较短字符串是较长字符串的子串时，按长度比给分；长度差越小分越高。
+     * 场景：`Spider-Man 2` vs `Spider-Man 2 2004`（标题是候选名子串），
+     * Jaccard/Dice 因 token 数差异给分偏低，子串匹配可直接给 0.9+ 高分。
+     *
+     * - 任一为空 → 0
+     * - 互为子串 → `1 - 0.1 * |lenA - lenB| / max(lenA, lenB)`（长度差 0 → 1.0，长度差等于 max → 0.9）
+     * - 否则 → 0
+     */
+    private fun substringSimilarity(a: String, b: String): Double {
+        val na = normalize(a)
+        val nb = normalize(b)
+        if (na.isBlank() || nb.isBlank()) return 0.0
+        return when {
+            na.contains(nb) || nb.contains(na) -> {
+                val maxLen = maxOf(na.length, nb.length).coerceAtLeast(1)
+                1.0 - 0.1 * abs(na.length - nb.length) / maxLen
+            }
+            else -> 0.0
+        }
+    }
+
+    /**
+     * Feature #5：数字序列匹配加分（参考 FB-Mod `EpisodeMetrics.numericSequence`）。
+     *
+     * 从 [parsed.title] 中提取所有数字序列（如 `Spider-Man 2` → `[2]`、`Saw 2004` → `[2004]`），
+     * 再补入 parser 已提取的 [ParsedFilename.year]/[season]/[episodes] 作为已知数字集合，
+     * 与候选的 year/season 比对：
+     * - candidate.year 在集合中 → +[NUMERIC_YEAR_BONUS]
+     * - candidate.season 在集合中 → +[NUMERIC_SEASON_BONUS]
+     *
+     * 场景：解析器误把文件名中的某个数字当作年份/季号，或残留数字 token 在 title 中，
+     * 导致 [yearPenalty] 触发；数字序列匹配可校验候选 year/season 是否仍出现在文件名数字中，
+     * 命中则补回部分分数。
+     *
+     * 与 [sxeBonus] 互补：sxeBonus 要求 parsed 与 candidate 的 season/episodes 完全一致；
+     * numericBonus 只要候选 year/season 出现在文件名任意数字位即可。
+     */
+    private fun numericSequenceBonus(parsed: ParsedFilename, candidate: MatchCandidate): Double {
+        val numbers = mutableSetOf<Int>()
+        // 从 title 中提取所有数字（如 "Spider-Man 2" → [2]）
+        parsed.title?.let { title ->
+            Regex("\\d+").findAll(title).forEach { runCatching { numbers.add(it.value.toInt()) } }
+        }
+        // 加入 parser 已提取的数字（年份/季/集）
+        parsed.year?.let { numbers.add(it) }
+        parsed.season?.let { numbers.add(it) }
+        parsed.episodes.forEach { numbers.add(it) }
+        if (numbers.isEmpty()) return 0.0
+        var bonus = 0.0
+        candidate.year?.let { y -> if (numbers.contains(y)) bonus += NUMERIC_YEAR_BONUS }
+        candidate.season?.let { s -> if (numbers.contains(s)) bonus += NUMERIC_SEASON_BONUS }
+        return bonus
+    }
+
     companion object {
         private const val TITLE_WEIGHT = 0.85      // P0.8
         private const val POP_WEIGHT = 0.04
@@ -300,6 +365,10 @@ class ConfidenceScorer(
         private const val JW_SCALING = 0.1          // P0.6: Jaro-Winkler scaling factor
         private const val MAX_JW_PREFIX = 4         // P0.6: Jaro-Winkler max common prefix
         private const val SXE_BONUS = 0.10          // P2.2: SxE 完整命中加分
+        // Feature #5: 数字序列匹配加分（参考 FB-Mod numericSequence）。
+        // 权重与 SXE_BONUS/SXX 量级一致，避免压过 titleScore；year 命中比 season 更可信。
+        private const val NUMERIC_YEAR_BONUS = 0.05   // candidate.year 出现在文件名数字中
+        private const val NUMERIC_SEASON_BONUS = 0.03 // candidate.season 出现在文件名数字中
         // P2.3 冠词归一化已迁移到 [TextNormalizer]（LEADING_ARTICLE / TRAILING_ARTICLE），
         // 由 [TextNormalizer.normalize] 统一处理 lowercase / 重排尾随冠词 / 去前导冠词。
     }
