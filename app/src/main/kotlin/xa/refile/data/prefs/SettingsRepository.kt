@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import xa.refile.core.naming.NamingOptions
 import xa.refile.core.naming.Preset
+import xa.refile.core.rename.ConflictStrategy
 import xa.refile.data.crypto.KeystoreCrypto
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -107,6 +108,28 @@ class SettingsRepository @Inject constructor(
     }
 
     /**
+     * 执行阶段冲突处理策略（Task 4.1 增强），默认 [ConflictStrategy.FAIL]。
+     *
+     * 预览后到执行期间服务器可能新增同名文件，该策略决定执行时如何处理这类冲突：
+     * SKIP 跳过 / FAIL 失败记录 / INDEX 自动加序号 / OVERWRITE 覆盖。
+     * 持久化为策略名（[ConflictStrategy.name]），读取时回退默认值。
+     */
+    val conflictStrategy: Flow<ConflictStrategy> = context.dataStore.data.map { prefs ->
+        val name = prefs[KEY_CONFLICT_STRATEGY]
+        name?.let { runCatching { ConflictStrategy.valueOf(it) }.getOrNull() } ?: ConflictStrategy.FAIL
+    }
+
+    /**
+     * WebDAV 回收站目录（Task 4.1 增强），默认 `.trash`。
+     *
+     * 供 [xa.refile.core.rename.RenameExecutor.safeDelete] 使用：删除/覆盖前把文件移动到该目录
+     * 而非物理删除（参考 tmm `deleteFileWithBackup`）。空串表示未配置（safeDelete 将直接返回 false）。
+     */
+    val trashDir: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[KEY_TRASH_DIR] ?: DEFAULT_TRASH_DIR
+    }
+
+    /**
      * 保存 TMDB API Key。空串清空；非空串经 [KeystoreCrypto] 加密后写入并置 v2 标志。
      */
     suspend fun setApiKey(value: String) {
@@ -168,9 +191,24 @@ class SettingsRepository @Inject constructor(
         }
     }
 
+    /** 保存执行阶段冲突处理策略。 */
+    suspend fun setConflictStrategy(value: ConflictStrategy) {
+        context.dataStore.edit {
+            it[KEY_CONFLICT_STRATEGY] = value.name
+        }
+    }
+
+    /** 保存 WebDAV 回收站目录（去首尾斜杠；空串表示未配置）。 */
+    suspend fun setTrashDir(value: String) {
+        context.dataStore.edit {
+            it[KEY_TRASH_DIR] = value.trim('/')
+        }
+    }
+
     private companion object {
         const val DEFAULT_LANGUAGE = "zh-CN"
         val DEFAULT_PRESET = Preset.DEFAULT.name
+        const val DEFAULT_TRASH_DIR = ".trash"
         private val KEY_API_KEY = stringPreferencesKey("api_key")
         private val KEY_API_KEY_V2 = booleanPreferencesKey("api_key_v2")
         private val KEY_LANGUAGE = stringPreferencesKey("language")
@@ -180,6 +218,8 @@ class SettingsRepository @Inject constructor(
         private val KEY_MOVIE_TEMPLATE = stringPreferencesKey("movie_template")
         private val KEY_EPISODE_TEMPLATE = stringPreferencesKey("episode_template")
         private val KEY_PAD_DIGITS = intPreferencesKey("visual_pad_digits")
+        private val KEY_CONFLICT_STRATEGY = stringPreferencesKey("conflict_strategy")
+        private val KEY_TRASH_DIR = stringPreferencesKey("trash_dir")
     }
 }
 

@@ -30,7 +30,9 @@ class RenameExecutorTest {
             password = "pass",
             client = OkHttpClient(),
         )
-        executor = RenameExecutor(client)
+        // maxRetries = 0：关闭自动重试，保持既有用例「单次 MOVE」语义；
+        // 重试相关行为由专用用例构造带重试的 executor 验证。
+        executor = RenameExecutor(client, maxRetries = 0)
     }
 
     @After fun tearDown() {
@@ -302,6 +304,214 @@ class RenameExecutorTest {
         )
 
         assertThat(report.results[0].second).isInstanceOf(RenameResult.Skipped::class.java)
+        assertThat(takeAllRequests()).isEmpty()
+    }
+
+    // ---------------- 自动重试 + 指数退避（Task 4.1 增强） ----------------
+
+    /** PROPFIND Depth 1 返回 /dir 目录自身 + 已存在文件 b.mkv 的 multistatus 响应体。 */
+    private val dirWithExistingB: String =
+        """<?xml version="1.0"?><D:multistatus xmlns:D="DAV:">
+            |  <D:response><D:href>/dir/</D:href><D:propstat><D:prop>
+            |    <D:displayname>dir</D:displayname><D:resourcetype><D:collection/></D:resourcetype>
+            |  </D:prop></D:propstat></D:response>
+            |  <D:response><D:href>/dir/b.mkv</D:href><D:propstat><D:prop>
+            |    <D:displayname>b.mkv</D:displayname><D:getcontentlength>100</D:getcontentlength>
+            |  </D:prop></D:propstat></D:response>
+            |</D:multistatus>""".trimMargin()
+
+    /**
+     * 首次 MOVE 失败（403）→ 指数退避重试 → 第二次成功（201）。
+     *
+     * 用带重试的 executor（maxRetries=2，initialDelayMs=1），断言发生 2 次 MOVE 请求且最终 Success。
+     * runTest 下 delay 为虚拟时间，不实际睡眠。
+     */
+    @Test fun `move with retry succeeds after transient failure`() = runTest {
+        val client = WebDavClient(
+            baseUrl = server.url("/").toString(),
+            username = "user",
+            password = "pass",
+            client = OkHttpClient(),
+        )
+        val retryExecutor = RenameExecutor(client, maxRetries = 2, initialDelayMs = 1L)
+
+        server.enqueue(MockResponse().setResponseCode(403)) // 首次失败
+        server.enqueue(MockResponse().setResponseCode(201)) // 重试成功
+
+        val report = retryExecutor.execute(
+            listOf(RenameOperation(sourcePath = "/a.mkv", targetPath = "/b.mkv")),
+        )
+
+        assertThat(report.results[0].second).isInstanceOf(RenameResult.Success::class.java)
+        val requests = takeAllRequests()
+        assertThat(requests).hasSize(2)
+        requests.forEach { assertThat(it.method).isEqualTo("MOVE") }
+        assertThat(report.succeeded).isEqualTo(1)
+    }
+
+    /**
+     * 重试全部耗尽后仍失败 → 返回 Failed，且 MOVE 请求次数 = maxRetries + 1（首次 + 重试）。
+     */
+    @Test fun `move with retry exhausted returns Failed`() = runTest {
+        val client = WebDavClient(
+            baseUrl = server.url("/").toString(),
+            username = "user",
+            password = "pass",
+            client = OkHttpClient(),
+        )
+        val retryExecutor = RenameExecutor(client, maxRetries = 2, initialDelayMs = 1L)
+
+        server.enqueue(MockResponse().setResponseCode(403)) // 首次
+        server.enqueue(MockResponse().setResponseCode(403)) // 重试 1
+        server.enqueue(MockResponse().setResponseCode(403)) // 重试 2
+
+        val report = retryExecutor.execute(
+            listOf(RenameOperation(sourcePath = "/a.mkv", targetPath = "/b.mkv")),
+        )
+
+        val result = report.results[0].second
+        assertThat(result).isInstanceOf(RenameResult.Failed::class.java)
+        assertThat(takeAllRequests()).hasSize(3) // 1 + 2 次重试
+        assertThat(report.failed).isEqualTo(1)
+    }
+
+    // ---------------- 冲突策略（Task 4.1 增强） ----------------
+
+    /**
+     * SKIP 策略：预检测发现目标 /dir/b.mkv 已存在 → 跳过，不发 MOVE，结果 Skipped。
+     * 请求序列：MKCOL /dir → PROPFIND /dir（返回 b.mkv），无 MOVE。
+     */
+    @Test fun `SKIP strategy skips when target exists on server`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(201)) // MKCOL /dir
+        server.enqueue(
+            MockResponse().setResponseCode(207)
+                .setHeader("Content-Type", "application/xml; charset=utf-8")
+                .setBody(dirWithExistingB),
+        ) // PROPFIND /dir → b.mkv 已存在
+
+        val report = executor.execute(
+            listOf(RenameOperation(sourcePath = "/a.mkv", targetPath = "/dir/b.mkv")),
+            conflictStrategy = ConflictStrategy.SKIP,
+        )
+
+        assertThat(report.results[0].second).isInstanceOf(RenameResult.Skipped::class.java)
+        val requests = takeAllRequests()
+        assertThat(requests).hasSize(2)
+        assertThat(requests.any { it.method == "MOVE" }).isFalse()
+    }
+
+    /**
+     * SKIP 策略：目标不存在 → 正常 MOVE，结果 Success。
+     * PROPFIND 返回空目录（仅目录自身），不构成冲突。
+     */
+    @Test fun `SKIP strategy moves when target does not exist`() = runTest {
+        val emptyDir = """<?xml version="1.0"?><D:multistatus xmlns:D="DAV:">
+            |  <D:response><D:href>/dir/</D:href><D:propstat><D:prop>
+            |    <D:displayname>dir</D:displayname><D:resourcetype><D:collection/></D:resourcetype>
+            |  </D:prop></D:propstat></D:response>
+            |</D:multistatus>""".trimMargin()
+        server.enqueue(MockResponse().setResponseCode(201)) // MKCOL /dir
+        server.enqueue(
+            MockResponse().setResponseCode(207)
+                .setHeader("Content-Type", "application/xml; charset=utf-8")
+                .setBody(emptyDir),
+        ) // PROPFIND /dir → 空
+        server.enqueue(MockResponse().setResponseCode(201)) // MOVE
+
+        val report = executor.execute(
+            listOf(RenameOperation(sourcePath = "/a.mkv", targetPath = "/dir/b.mkv")),
+            conflictStrategy = ConflictStrategy.SKIP,
+        )
+
+        assertThat(report.results[0].second).isInstanceOf(RenameResult.Success::class.java)
+        val requests = takeAllRequests()
+        assertThat(requests.count { it.method == "MOVE" }).isEqualTo(1)
+    }
+
+    /**
+     * INDEX 策略：目标 /dir/b.mkv 已存在 → 主文件改为 /dir/b (1).mkv，
+     * 伴随文件基名同步替换为 /dir/b (1).srt，二者均 MOVE 成功。
+     */
+    @Test fun `INDEX strategy renames to indexed name and syncs companion`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(201)) // MKCOL /dir
+        server.enqueue(
+            MockResponse().setResponseCode(207)
+                .setHeader("Content-Type", "application/xml; charset=utf-8")
+                .setBody(dirWithExistingB),
+        ) // PROPFIND /dir → b.mkv 已存在
+        server.enqueue(MockResponse().setResponseCode(201)) // MOVE 主文件 → /dir/b (1).mkv
+        server.enqueue(MockResponse().setResponseCode(201)) // MOVE 伴随 → /dir/b (1).srt
+
+        val report = executor.execute(
+            listOf(
+                RenameOperation(
+                    sourcePath = "/a.mkv",
+                    targetPath = "/dir/b.mkv",
+                    companions = listOf(CompanionRename("/a.srt", "/dir/b.srt")),
+                ),
+            ),
+            conflictStrategy = ConflictStrategy.INDEX,
+        )
+
+        assertThat(report.results[0].second).isInstanceOf(RenameResult.Success::class.java)
+        val effective = report.results[0].first
+        assertThat(effective.targetPath).isEqualTo("/dir/b (1).mkv")
+        assertThat(effective.companions[0].targetPath).isEqualTo("/dir/b (1).srt")
+        val requests = takeAllRequests()
+        assertThat(requests.count { it.method == "MOVE" }).isEqualTo(2)
+    }
+
+    /**
+     * OVERWRITE 策略：不预检测，MOVE 不带 `Overwrite: F`（交由服务器覆盖）。
+     */
+    @Test fun `OVERWRITE strategy moves without Overwrite F header`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(201)) // MOVE 覆盖
+
+        val report = executor.execute(
+            listOf(RenameOperation(sourcePath = "/a.mkv", targetPath = "/b.mkv")),
+            conflictStrategy = ConflictStrategy.OVERWRITE,
+        )
+
+        assertThat(report.results[0].second).isInstanceOf(RenameResult.Success::class.java)
+        val requests = takeAllRequests()
+        assertThat(requests).hasSize(1)
+        assertThat(requests[0].method).isEqualTo("MOVE")
+        // overwrite=true → 不发送 Overwrite: F（forceOverride=false）
+        assertThat(requests[0].getHeader("Overwrite")).isNotEqualTo("F")
+        // OVERWRITE 不做冲突预检测 → 无 PROPFIND
+        assertThat(requests.any { it.method == "PROPFIND" }).isFalse()
+    }
+
+    // ---------------- 回收站 safeDelete（Task 4.1 增强） ----------------
+
+    /**
+     * safeDelete 把 /Movies/a.mkv 移到 .trash/Movies/a.mkv：
+     * 先 MKCOL 回收站镜像祖先目录（.trash、.trash/Movies），再 MOVE（overwrite=true）。
+     */
+    @Test fun `safeDelete moves file to trash dir mirroring structure`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(201)) // MKCOL /.trash
+        server.enqueue(MockResponse().setResponseCode(201)) // MKCOL /.trash/Movies
+        server.enqueue(MockResponse().setResponseCode(201)) // MOVE /Movies/a.mkv → .trash/Movies/a.mkv
+
+        val ok = executor.safeDelete("/Movies/a.mkv", trashDir = ".trash")
+
+        assertThat(ok).isTrue()
+        val requests = takeAllRequests()
+        assertThat(requests).hasSize(3)
+        assertThat(requests[0].method).isEqualTo("MKCOL")
+        assertThat(requests[0].path).isEqualTo("/.trash")
+        assertThat(requests[1].method).isEqualTo("MKCOL")
+        assertThat(requests[1].path).isEqualTo("/.trash/Movies")
+        assertThat(requests[2].method).isEqualTo("MOVE")
+        assertThat(requests[2].path).isEqualTo("/Movies/a.mkv")
+        // 覆盖模式：不发送 Overwrite: F
+        assertThat(requests[2].getHeader("Overwrite")).isNotEqualTo("F")
+    }
+
+    /** 空回收站目录 → safeDelete 直接返回 false，不发任何请求。 */
+    @Test fun `safeDelete with empty trash dir returns false`() = runTest {
+        val ok = executor.safeDelete("/Movies/a.mkv", trashDir = "")
+        assertThat(ok).isFalse()
         assertThat(takeAllRequests()).isEmpty()
     }
 }
