@@ -15,19 +15,19 @@ import androidx.compose.ui.graphics.Color
  */
 
 // 背景
-val AppWhite = Color(0xFFF7FBFF)
-val AppBackground = Color(0xFFF7FBFF)
+val AppWhite = Color(0xFFF7F7F9)
+val AppBackground = Color(0xFFF7F7F9)
 
 // Surfaces
 val LightSurface = Color(0xFFFFFFFF)
-val LightSurfaceVariant = Color(0xFFE1E8F0)
+val LightSurfaceVariant = Color(0xFFE6E8EB)
 val CardBackground = Color(0xFFFFFFFF)
 // 海报墙加载占位冷灰框
-val PosterPlaceholder = Color(0xFFE1E8F0)
+val PosterPlaceholder = Color(0xFFE6E8EB)
 
 // 强调色（命名保留，实际为蓝色调）
-val AccentAmber = Color(0xFF0B6CB8)      // primary 蓝
-val SecondaryGold = Color(0xFF0288A6)    // secondary 冷青
+val AccentAmber = Color(0xFF91C6FF)      // primary 浅蓝（主题色）
+val SecondaryGold = Color(0xFF5B7CC4)    // secondary 中蓝（与 primary 同系，沉稳辅助）
 val AccentTeal = Color(0xFF7D5260)       // tertiary 暖灰玫红
 
 // Text
@@ -59,14 +59,17 @@ val DarkSurfaceVariant = LightSurfaceVariant
 
 /**
  * 当前生效的浅色方案。
+ *
+ * 注：primary 为浅蓝（#91C6FF），onPrimary 必须用深色文本以维持 WCAG 对比度
+ * （白字对 #91C6FF 对比度仅约 1.5:1，不达标）。secondary 同理。
  */
 val LightColorScheme = lightColorScheme(
     primary = AccentAmber,
-    onPrimary = Color.White,
+    onPrimary = OnPrimaryContainer,   // 深色文本：浅 primary 上需深色
     primaryContainer = PrimaryContainer,
     onPrimaryContainer = OnPrimaryContainer,
     secondary = SecondaryGold,
-    onSecondary = Color.White,
+    onSecondary = Color.White,        // secondary 较深，白字可达标
     secondaryContainer = SecondaryContainer,
     onSecondaryContainer = OnSecondaryContainer,
     tertiary = AccentTeal,
