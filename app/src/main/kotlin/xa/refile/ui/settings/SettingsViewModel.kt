@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import xa.refile.core.rename.ConflictStrategy
 import xa.refile.data.prefs.SettingsRepository
 import xa.refile.data.repository.TmdbCacheRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -84,6 +85,31 @@ class SettingsViewModel @Inject constructor(
     val presetId: StateFlow<String> = settings.presetId
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), DEFAULT_PRESET)
 
+    /**
+     * 执行阶段冲突处理策略（Task 4.1 增强），默认 [ConflictStrategy.FAIL]。
+     *
+     * 由「文件」分组下「冲突处理策略」选项设置，[RenameWorker] 执行时读取注入 [RenameExecutor]。
+     */
+    val conflictStrategy: StateFlow<ConflictStrategy> = settings.conflictStrategy
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), ConflictStrategy.FAIL)
+
+    /**
+     * WebDAV 回收站目录（Task 4.1 增强），默认 `.trash`。
+     *
+     * 供 [xa.refile.core.rename.RenameExecutor.safeDelete] 使用。
+     */
+    val trashDir: StateFlow<String> = settings.trashDir
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), DEFAULT_TRASH_DIR)
+
+    /**
+     * WebDAV 回收站总开关，默认开启。
+     *
+     * 关闭后 [xa.refile.worker.RenameWorker] 把生效回收站目录置空，safeDelete 不执行回收备份。
+     * 由「文件」分组下「启用回收站」开关控制；关闭时「回收站目录」项禁用。
+     */
+    val trashEnabled: StateFlow<Boolean> = settings.trashEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), true)
+
     /** 应用版本号（取自 PackageInfo；读取失败回退占位串）。 */
     val versionName: StateFlow<String> = MutableStateFlow(readVersionName()).asStateFlow()
 
@@ -121,6 +147,21 @@ class SettingsViewModel @Inject constructor(
     /** 保存 TMDB 反代地址到 DataStore（空串表示直连官方）。 */
     fun setTmdbProxyUrl(value: String) {
         viewModelScope.launch { settings.setTmdbProxyUrl(value) }
+    }
+
+    /** 保存执行阶段冲突处理策略到 DataStore。 */
+    fun setConflictStrategy(value: ConflictStrategy) {
+        viewModelScope.launch { settings.setConflictStrategy(value) }
+    }
+
+    /** 保存 WebDAV 回收站目录到 DataStore（空串表示未配置）。 */
+    fun setTrashDir(value: String) {
+        viewModelScope.launch { settings.setTrashDir(value) }
+    }
+
+    /** 保存 WebDAV 回收站总开关。 */
+    fun setTrashEnabled(value: Boolean) {
+        viewModelScope.launch { settings.setTrashEnabled(value) }
     }
 
     /**
@@ -236,6 +277,7 @@ class SettingsViewModel @Inject constructor(
         const val TMDB_API_KEY_LENGTH = 32
         const val DEFAULT_LANGUAGE = "zh-CN"
         const val DEFAULT_PRESET = "DEFAULT"
+        const val DEFAULT_TRASH_DIR = ".trash"
     }
 }
 

@@ -17,10 +17,12 @@ import xa.refile.core.rename.RenameOperation
 import xa.refile.core.rename.RenameOperationJson
 import xa.refile.core.webdav.WebDavClient
 import xa.refile.data.db.ServerConfigEntity
+import xa.refile.data.prefs.SettingsRepository
 import xa.refile.data.repository.HistoryRepository
 import xa.refile.data.repository.ServerRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.flow.first
 import java.io.IOException
 
 /**
@@ -49,6 +51,7 @@ class RenameWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val serverRepo: ServerRepository,
     private val historyRepo: HistoryRepository,
+    private val settings: SettingsRepository,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
@@ -76,9 +79,14 @@ class RenameWorker @AssistedInject constructor(
         ensureChannel()
         setForeground(buildForegroundInfo(batchName, 0, ops.size, ops.first()))
 
-        val executor = RenameExecutor(client)
+        // Task 4.1 增强：从设置读取执行阶段冲突策略与回收站配置，注入 [RenameExecutor]。
+        // 回收站总开关关闭时把生效目录置空，[RenameExecutor.safeDelete] 将直接返回 false（不执行回收备份）。
+        val conflictStrategy = settings.conflictStrategy.first()
+        val trashEnabled = settings.trashEnabled.first()
+        val trashDir = if (trashEnabled) settings.trashDir.first() else ""
+        val executor = RenameExecutor(client, trashDir = trashDir)
         val report = try {
-            executor.execute(ops) { current, total, op ->
+            executor.execute(ops, conflictStrategy = conflictStrategy) { current, total, op ->
                 // onProgress 是非 suspend 回调，用 setProgressAsync（ListenableWorker 继承，
                 // 返回 ListenableFuture，fire-and-forget）写入进度供 UI 观察，避免在非 suspend
                 // lambda 中调用 suspend 的 setProgress。

@@ -20,9 +20,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -30,16 +32,21 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -47,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import xa.refile.core.rename.ConflictStrategy
 
 /**
  * 设置中心页（计划 §M5 Task 5.4）。
@@ -77,6 +85,12 @@ fun SettingsScreen(
     val versionName by viewModel.versionName.collectAsStateWithLifecycle()
     val logExportResult by viewModel.logExportResult.collectAsStateWithLifecycle()
     val openSourceNotices by viewModel.openSourceNotices.collectAsStateWithLifecycle()
+    val conflictStrategy by viewModel.conflictStrategy.collectAsStateWithLifecycle()
+    val trashDir by viewModel.trashDir.collectAsStateWithLifecycle()
+    val trashEnabled by viewModel.trashEnabled.collectAsStateWithLifecycle()
+
+    var showConflictDialog by remember { mutableStateOf(false) }
+    var showTrashDialog by remember { mutableStateOf(false) }
 
     val logLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/plain"),
@@ -147,7 +161,38 @@ fun SettingsScreen(
                 }
             }
 
-            // ---------- 组 3：数据管理 ----------
+            // ---------- 组 3：文件（执行阶段冲突策略与回收站） ----------
+            item {
+                SettingsSection(title = "文件") {
+                    SettingsRow(
+                        icon = Icons.Default.Folder,
+                        title = "冲突处理策略",
+                        subtitle = conflictStrategyLabel(conflictStrategy),
+                        onClick = { showConflictDialog = true },
+                    )
+                    // 回收站总开关：关闭后回收站目录项禁用，safeDelete 不执行回收备份。
+                    SwitchSettingsRow(
+                        icon = Icons.Default.DeleteOutline,
+                        title = "启用回收站",
+                        subtitle = if (trashEnabled) "删除/覆盖前移动到回收站目录" else "已关闭（不执行回收备份）",
+                        checked = trashEnabled,
+                        onCheckedChange = viewModel::setTrashEnabled,
+                    )
+                    SettingsRow(
+                        icon = Icons.Default.DeleteOutline,
+                        title = "回收站目录",
+                        subtitle = when {
+                            !trashEnabled -> "已关闭"
+                            trashDir.isBlank() -> "未配置（物理删除）"
+                            else -> trashDir
+                        },
+                        onClick = { if (trashEnabled) showTrashDialog = true },
+                        enabled = trashEnabled,
+                    )
+                }
+            }
+
+            // ---------- 组 4：数据管理 ----------
             item {
                 SettingsSection(title = "数据管理") {
                     SettingsRow(
@@ -233,6 +278,126 @@ fun SettingsScreen(
             },
         )
     }
+
+    // 冲突处理策略选择对话框（Task 4.1 增强）。
+    if (showConflictDialog) {
+        ConflictStrategyDialog(
+            current = conflictStrategy,
+            onDismiss = { showConflictDialog = false },
+            onSelect = {
+                viewModel.setConflictStrategy(it)
+                showConflictDialog = false
+            },
+        )
+    }
+
+    // 回收站目录输入对话框（Task 4.1 增强）。
+    if (showTrashDialog) {
+        TrashDirDialog(
+            current = trashDir,
+            onDismiss = { showTrashDialog = false },
+            onConfirm = {
+                viewModel.setTrashDir(it)
+                showTrashDialog = false
+            },
+        )
+    }
+}
+
+/** 冲突策略 → 简短文案（用于设置行副标题）。 */
+private fun conflictStrategyLabel(strategy: ConflictStrategy): String = when (strategy) {
+    ConflictStrategy.SKIP -> "跳过冲突文件"
+    ConflictStrategy.FAIL -> "失败（不覆盖）"
+    ConflictStrategy.INDEX -> "自动加序号"
+    ConflictStrategy.OVERWRITE -> "覆盖目标"
+}
+
+/** 冲突策略 → 详细说明（用于选择对话框）。 */
+private fun conflictStrategyDescription(strategy: ConflictStrategy): String = when (strategy) {
+    ConflictStrategy.SKIP -> "目标已存在则跳过该文件，继续后续"
+    ConflictStrategy.FAIL -> "不覆盖；目标已存在时 MOVE 失败并记录，继续后续"
+    ConflictStrategy.INDEX -> "目标已存在时自动加序号 (1)、(2)…"
+    ConflictStrategy.OVERWRITE -> "直接覆盖目标文件"
+}
+
+@Composable
+private fun ConflictStrategyDialog(
+    current: ConflictStrategy,
+    onDismiss: () -> Unit,
+    onSelect: (ConflictStrategy) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+        title = { Text("冲突处理策略") },
+        text = {
+            Column {
+                ConflictStrategy.values().forEach { strategy ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(strategy) }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = strategy == current,
+                            onClick = { onSelect(strategy) },
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = conflictStrategyLabel(strategy),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            Text(
+                                text = conflictStrategyDescription(strategy),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+    )
+}
+
+@Composable
+private fun TrashDirDialog(
+    current: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var text by remember { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = { onConfirm(text) }) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+        title = { Text("回收站目录") },
+        text = {
+            Column {
+                Text(
+                    text = "删除/覆盖前把文件移动到该目录而非物理删除。留空表示不启用回收站。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    placeholder = { Text(".trash") },
+                )
+            }
+        },
+    )
 }
 
 @Composable
@@ -268,12 +433,63 @@ private fun SettingsRow(
     icon: ImageVector,
     title: String,
     subtitle: String? = null,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (enabled) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (enabled) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.Medium,
+            )
+            subtitle?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * 带开关的设置行（图标 + 标题 + 副标题 + 右侧 Switch）。
+ * 用于「启用回收站」等布尔开关项。
+ */
+@Composable
+private fun SwitchSettingsRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -298,10 +514,9 @@ private fun SettingsRow(
                 )
             }
         }
-        Icon(
-            imageVector = Icons.Default.ChevronRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
         )
     }
 }
