@@ -737,9 +737,10 @@ class FilenameParser {
             // 遇到第一个非停用词 token，停止
             break
         }
-        // 清空保护：若剥离会清空整个标题（首个 token 也是停用词，如 `It` / `Ma` 这类单字标题
-        // 恰好命中语言/流媒体代码），保留原文，交由后续步骤处理。避免把 `It.2017...` 的标题剥成 null。
-        if (firstStopFromTail == 0) return s
+        // 清空保护：仅当标题只剩单个 token 且该 token 命中停用词（如 `It` / `Ma` 这类单字标题
+        // 恰好命中语言/流媒体代码）时保留原文，避免把 `It.2017...` 的标题在迭代中剥成 null。
+        // 多 token 全技术串（如 `1080p BluRay x264`）不保护——剥离为空表示无真实标题。
+        if (firstStopFromTail == 0 && tokens.size == 1) return s
         if (firstStopFromTail == tokens.size) return s
         return tokens.subList(0, firstStopFromTail).joinToString(" ")
     }
