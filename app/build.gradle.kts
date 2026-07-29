@@ -21,7 +21,8 @@ android {
         applicationId = "xa.refile"
         minSdk = 26
         targetSdk = 34
-        // 版本号格式: versionName=YY.M.D，versionCode=YYMMDDHH
+        // 版本号格式: versionName=YY.M.D-HH:mm，versionCode 以 2024 为基准年紧凑编码避免 32 位整数溢出
+        // versionCode = (YY-24)*10000000 + MM*1000000 + DD*10000 + HH*100 + mm
         // 年份取后两位，使用中国时区(Asia/Shanghai)
         val tz = TimeZone.getTimeZone("Asia/Shanghai")
         val now = Calendar.getInstance(tz)
@@ -29,8 +30,10 @@ android {
         val month = now.get(Calendar.MONTH) + 1
         val day = now.get(Calendar.DAY_OF_MONTH)
         val hour = now.get(Calendar.HOUR_OF_DAY)
-        versionCode = year * 1000000 + month * 10000 + day * 100 + hour
-        versionName = "$year.$month.$day"
+        val minute = now.get(Calendar.MINUTE)
+        // 基准年 2024（YY=24）起算，支持到 2034 年（YY=34）仍 < 2100000000 上限
+        versionCode = (year - 24) * 10000000 + month * 1000000 + day * 10000 + hour * 100 + minute
+        versionName = "$year.$month.$day-$hour:${minute.toString().padStart(2, '0')}"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
