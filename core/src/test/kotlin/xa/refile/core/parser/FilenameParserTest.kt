@@ -410,9 +410,9 @@ class FilenameParserTest {
 
     @Test fun `hyphen without spaces not treated as separator`() {
         // `X-Men` 这类连字符无空格，不应被当作集名分隔符拆分（标题完整保留 X 和 Men，不会只剩 X）。
-        // 注：连字符在词表清洗阶段会被归一为空格，故最终标题为 `X Men` 而非 `X-Men`。
+        // 连字符在词表清洗阶段保留（不拆分），故最终标题为 `X-Men`（与 Spider-Man 一致）。
         val r = parser.parse("X-Men.2000.1080p.mkv")
-        assertThat(r.title).isEqualTo("X Men")
+        assertThat(r.title).isEqualTo("X-Men")
         assertThat(r.year).isEqualTo(2000)
     }
 

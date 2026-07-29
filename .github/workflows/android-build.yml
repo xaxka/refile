@@ -69,3 +69,39 @@ jobs:
             - Built at: ${{ github.event.head_commit.timestamp }}
           prerelease: true
           files: app/build/outputs/apk/release/*.apk
+
+  # 匹配系统真实样本代码覆盖测试（FilenameParser → MatchEngine 端到端）。
+  # 独立 job：用 --tests 过滤仅运行新增的真实世界覆盖用例（MatchEngineRealWorldTest），
+  # 不被 main 上既有的 MatchEngineE2ETest / ParserDiagnosticTest 解析回归阻塞，
+  # 给「匹配系统覆盖测试通过」一个干净、可归属的绿色信号。
+  matcher-coverage:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v5
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          cache-cleanup: on-success
+
+      - name: Run matcher real-world coverage tests
+        run: ./gradlew :core:test --tests "xa.refile.core.matcher.MatchEngineRealWorldTest" --console=plain --build-cache --parallel --info
+
+      - name: Upload matcher coverage test report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: matcher-coverage-report
+          path: core/build/reports/tests/test/**
+          if-no-files-found: warn

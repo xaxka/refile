@@ -100,6 +100,7 @@ class FilenameParser {
             spaced,
             stripAbsoluteEp = (year == null && seasonEpisode.isAbsolute),
             knownGroup = tech.group,
+            releaseYear = year,
         )
         // 9b. P2.6：中英混合标题拆分别名（`寒战1994 Cold War` → title="寒战1994", aliases=["Cold War"]）
         val (primaryTitle, titleAliases) = splitTitleAliases(title?.takeIf { it.isNotBlank() })
@@ -292,13 +293,18 @@ class FilenameParser {
         val season = result.season?.let { s ->
             if (s == 0 || s in 1..MAX_SEASON) s else null
         }
-        val maxEp = if (result.isAbsolute) MAX_ABSOLUTE_EPISODE else MAX_EPISODE
+        // SxxExx 形式但集号为 3-4 位（如 One Piece S21E1000，季21=整体第1000话）
+        // 视为绝对集号，放宽到 MAX_ABSOLUTE_EPISODE 校验。
+        // 阈值 100：E51 这类常规越界集号不当作绝对集号（仍按 MAX_EPISODE 丢弃），
+        // 仅 E100+ 视为长篇动画绝对集号。
+        val hasLargeEp = result.episodes.any { it >= 100 }
+        val maxEp = if (result.isAbsolute || hasLargeEp) MAX_ABSOLUTE_EPISODE else MAX_EPISODE
         val episodes = if (result.episodes.isNotEmpty() && result.episodes.all { it in 1..maxEp }) {
             result.episodes
         } else {
             emptyList()
         }
-        val isAbsolute = result.isAbsolute && episodes.isNotEmpty()
+        val isAbsolute = (result.isAbsolute || hasLargeEp) && episodes.isNotEmpty()
         return result.copy(season = season, episodes = episodes, isAbsolute = isAbsolute)
     }
 
@@ -391,6 +397,11 @@ class FilenameParser {
         // 独立集号 E02 / EP02（需 E/EP 前缀，避免误判 Apollo 13 / 2012）
         STANDALONE_EP.find(spaced)?.let { m ->
             return SeasonEpisodeResult(null, listOf(m.groupValues[1].toInt()), false)
+        }
+        // 仅季号 S01 / S1（scene 季打包 `S01.COMPLETE` 常见，无集号）
+        // 前导非字母避免误伤 `Series`；放在 STANDALONE_EP 之后、BRACKET_EP 之前。
+        SEASON_ONLY.find(spaced)?.let { m ->
+            return SeasonEpisodeResult(m.groupValues[1].toInt(), emptyList(), false)
         }
         // [02] 方括号形式：括号内纯 1-3 位数字视为集号（标记为绝对集号）
         if (brackets.any { BRACKET_EP.matches(it) }) {
@@ -595,7 +606,7 @@ class FilenameParser {
      * P2.6：cleanTitle 拆成多个独立 cleanStep，按顺序迭代应用直到结果稳定（每轮输出作下轮输入）。
      * 与 P0.1 配套：词表替换是其中一步（[stripTechByStopwords]）。
      */
-    private fun cleanTitle(spaced: String, stripAbsoluteEp: Boolean, knownGroup: String?): String? {
+    private fun cleanTitle(spaced: String, stripAbsoluteEp: Boolean, knownGroup: String?, releaseYear: Int?): String? {
         var current = spaced
         val steps: List<(String, Boolean) -> String> = listOf(
             ::stripEpisodeTitleSep,
@@ -606,7 +617,7 @@ class FilenameParser {
             ::stripPartTags,
             { s, _ -> stripKnownGroupSuffix(s, knownGroup) },
             ::stripTechByStopwords,
-            ::stripYearTokens,
+            { s, _ -> stripYearTokens(s, releaseYear) },
             ::normalizeWhitespace,
         )
         // 迭代至稳定（最多 3 轮，避免无限循环）
@@ -625,17 +636,19 @@ class FilenameParser {
         return s.substring(0, m.range.first)
     }
 
-    private fun stripSeasonEpisode(s: String, ignored: Boolean): String =
-        s.replace(SEASON_EPISODE, " ")
-            .replace(SEASON_RANGE, " ")
-            .replace(NX_N, " ")
-            .replace(CHINESE_SEASON_EP, " ")
-            .replace(CHINESE_NUM_SEASON_EP, " ")
-            .replace(CHINESE_EP_ONLY, " ")
-            .replace(CHINESE_NUM_EP, " ")
-            .replace(CHINESE_NUM_SEASON, " ")
-            .replace(STANDALONE_EP, " ")
-            .replace(DAILY_SHOW, " ")
+    private fun stripSeasonEpisode(s: String, ignored: Boolean): String {
+        // 截断到首个季集/日期模式之前：SxxExx 后的内容（剧集标题词 + 技术尾巴）
+        // 不应进入标题候选。如 `Game of Thrones S01E01 Winter Is Coming 1080p...` → `Game of Thrones`，
+        // `Stranger Things S01 COMPLETE 1080p...` → `Stranger Things`，`One Piece Episode 1000 1080p...` → `One Piece`。
+        // S/E 提取在 [parseSeasonEpisode]（用原 spaced）中完成，不受本截断影响。
+        val patterns = listOf(
+            SEASON_EPISODE, SEASON_RANGE, NX_N, SEASON_ONLY,
+            CHINESE_SEASON_EP, CHINESE_NUM_SEASON_EP, CHINESE_EP_ONLY,
+            CHINESE_NUM_EP, CHINESE_NUM_SEASON, STANDALONE_EP, EPISODE_WORD, DAILY_SHOW,
+        )
+        val firstCut = patterns.mapNotNull { it.find(s)?.range?.first }.minOrNull()
+        return if (firstCut != null && firstCut >= 0) s.substring(0, firstCut) else s
+    }
 
     private fun stripAbsoluteEpIfEnabled(s: String, stripAbsoluteEp: Boolean): String =
         if (stripAbsoluteEp) s.replace(ABSOLUTE_EP, " ") else s
@@ -675,8 +688,12 @@ class FilenameParser {
      *   至少一个 token 时视为片段，避免误剥 `H.2002.mkv` 这类单字母标题。
      */
     private fun stripTechByStopwords(s: String, ignored: Boolean): String {
-        // 用非字母数字作为分隔符切分（保留中文连续字符段）
-        val tokens = s.split(Regex("(?<=\\S)[\\s._\\-](?=\\S)"))
+        // 用空白/点/下划线作为分隔符切分（保留中文连续字符段）。
+        // 不把 `-` 当分隔符：连字符常出现在标题中（Spider-Man / X-Men / Anti-Life），
+        // 若拆分会把 `Spider-Man` 误拆为 [Spider, Man] 再 join 成 `Spider Man` 丢失连字符。
+        // 组名（`-GROUP`）已由 [stripKnownGroupSuffix] 在本步之前剥离，不影响。
+        // 连字符复合技术词（如 `DTS-HD`）由 [isTechStopword] 整体识别剥离。
+        val tokens = s.split(Regex("(?<=\\S)[\\s._](?=\\S)"))
             .filter { it.isNotBlank() }
         if (tokens.isEmpty()) return s
         // 从尾部向前找第一个非停用词 token
@@ -684,7 +701,7 @@ class FilenameParser {
         for (i in tokens.indices.reversed()) {
             val tok = tokens[i].trim()
             if (tok.isEmpty()) continue
-            if (ReleaseInfoDictionary.isHardStopword(tok)) {
+            if (isTechStopword(tok)) {
                 firstStopFromTail = i
                 continue
             }
@@ -700,9 +717,11 @@ class FilenameParser {
                 continue
             }
             // 纯数字 token（如 DTS5.1 拆出的 1、H.265 拆出的 265）：
-            // 仅当保留区 [0, i) 仍有非数字 token 时才剥离，避免误剥纯数字标题「1917」「2046」。
-            if (tok.all { it.isDigit() } && i > 0 &&
-                (0 until i).any { j -> !tokens[j].trim().all { c -> c.isDigit() } }
+            // 仅当位数 ≤3 且 [0, i) 范围内存在技术指示词（停用词/编解码器片段/单字母）时才剥离。
+            // 避免误剥标题尾部序号（如 `Toy Story 4` 的 4、`Spider-Man 2` 的 2）。
+            // 4 位数字（2019/2049/2012）交给 [stripYearTokens] / 视为标题一部分（Blade Runner 2049）。
+            if (tok.all { it.isDigit() } && tok.length <= 3 && i > 0 &&
+                (0 until i).any { j -> isTechIndicator(tokens[j].trim()) }
             ) {
                 firstStopFromTail = i
                 continue
@@ -718,11 +737,62 @@ class FilenameParser {
             // 遇到第一个非停用词 token，停止
             break
         }
+        // 清空保护：仅当标题只剩单个 token 且该 token 命中停用词（如 `It` / `Ma` 这类单字标题
+        // 恰好命中语言/流媒体代码）时保留原文，避免把 `It.2017...` 的标题在迭代中剥成 null。
+        // 多 token 全技术串（如 `1080p BluRay x264`）不保护——剥离为空表示无真实标题。
+        if (firstStopFromTail == 0 && tokens.size == 1) return s
         if (firstStopFromTail == tokens.size) return s
         return tokens.subList(0, firstStopFromTail).joinToString(" ")
     }
 
-    private fun stripYearTokens(s: String, ignored: Boolean): String = s.replace(YEAR, " ")
+    /**
+     * 判断 token 是否为硬停用词或连字符复合停用词。
+     * 连字符复合：如 `DTS-HD`，按 `-` 拆分后各分量均为硬停用词（dts、hd）则整体视为停用词。
+     * 避免误伤 `Spider-Man`（spider/man 均非停用词）、`X-Men`（x/men 均非停用词）。
+     */
+    private fun isTechStopword(tok: String): Boolean {
+        if (ReleaseInfoDictionary.isHardStopword(tok)) return true
+        if (tok.contains('-')) {
+            val parts = tok.split('-')
+            if (parts.size >= 2 && parts.all { it.isNotBlank() && ReleaseInfoDictionary.isHardStopword(it) }) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /** 判断 token 是否为技术指示词（用于纯数字剥离的上下文判定）。 */
+    private fun isTechIndicator(tok: String): Boolean =
+        isTechStopword(tok) || CODEC_DIGIT.matches(tok) || (tok.length == 1 && tok[0].isAsciiLetter())
+
+    /**
+     * 剥离标题中的年份 token，规则：
+     * - releaseYear（发行年）一律剥离。
+     * - 首个 token 为年份时保留（标题本身是年份，如 `2012` / `1917`）。
+     * - 超出 releaseYear+10 的未来年份保留（标题里的年份式数字，如 `Blade Runner 2049`）。
+     * - 其余 1900..2099 范围内的年份 token（原作年/片中年）剥离，如 `Cold.War.1994.2026` → `Cold War`。
+     *
+     * 用 `replace(YEAR, " ")` 会误剥标题里的年份式数字；只移除 releaseYear 又会留下原作年
+     * （如 `Cold War 1994`）。改为按 token 位置 + 未来阈值综合判定。
+     */
+    private fun stripYearTokens(s: String, releaseYear: Int?): String {
+        val tokens = s.split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (tokens.isEmpty()) return s
+        val futureMargin = 10
+        val result = tokens.mapIndexed { i, raw ->
+            val tok = raw.trim()
+            val y = tok.toIntOrNull()
+            if (y != null && y in 1900..2099) {
+                when {
+                    y == releaseYear -> " "
+                    i == 0 -> tok
+                    releaseYear != null && y > releaseYear + futureMargin -> tok
+                    else -> " "
+                }
+            } else tok
+        }
+        return result.joinToString(" ")
+    }
 
     private fun normalizeWhitespace(s: String, ignored: Boolean): String =
         s.replace(Regex("\\s+"), " ").trim()
@@ -893,7 +963,7 @@ class FilenameParser {
         private const val CN_NUM = "一二三四五六七八九十百零壹贰叁肆伍陆柒捌玖拾佰〇两"
 
         // S01E01E02 / S01E01-E03 / s1e2 — group2 捕获集号串（支持 E 与 - 分隔，含混合 01-E03）
-        private val SEASON_EPISODE = Regex("(?i)S(\\d{1,2})E(\\d{1,3}(?:[-]?E?\\d{1,3})*)")
+        private val SEASON_EPISODE = Regex("(?i)S(\\d{1,2})E(\\d{1,4}(?:[-]?E?\\d{1,3})*)")
         // P3.0 英文字面词季集模式：Season 1 Episode 2 / Staffel 2 Episode 5（含多语言季关键词）
         private val SEASON_WORD_EP = Regex(
             "(?i)(?<![a-z])(?:season|staffel|saison|temporada|series|stagione|сезон|시즌|الموسم)\\s+(\\d{1,2})\\s+episode\\s+(\\d{1,3})(?:-(\\d{1,3}))?"
@@ -902,9 +972,9 @@ class FilenameParser {
         private val SEASON_WORD_ONLY = Regex(
             "(?i)(?<![a-z])(?:season|staffel|saison|temporada|series|stagione|сезон|시즌|الموسم)\\s+(\\d{1,2})(?!\\s*episode)"
         )
-        // P3.0 Episode 独立词模式：Episode 16 / Episode 16-20
+        // P3.0 Episode 独立词模式：Episode 16 / Episode 16-20 / Episode 1000（集号放宽至 4 位以支持绝对集号）
         private val EPISODE_WORD = Regex(
-            "(?i)(?<![a-z])episode\\s+(\\d{1,3})(?:-(\\d{1,3}))?"
+            "(?i)(?<![a-z])episode\\s+(\\d{1,4})(?:-(\\d{1,3}))?"
         )
         // P3.0 Anime Special/OVA 前缀识别（→ season=0）
         private val ANIME_SPECIAL_TOKEN = Regex(
@@ -915,7 +985,7 @@ class FilenameParser {
         )
         // P3.0 集号字母后缀 a-i（S01E02a / 1x02b 后的单字母）
         private val EPISODE_LETTER_SUFFIX = Regex("(?i)([a-i])$")
-        private val EPISODE_NUM = Regex("\\d{1,3}")
+        private val EPISODE_NUM = Regex("\\d{1,4}")
         // B24 补丁：集号区间 N-M（两端均可带 E 前缀，如 01-E03 / E01-E03 / 01-03）。
         private val RANGE_EP = Regex("(?i)E?(\\d{1,3})\\s*-\\s*E?(\\d{1,3})")
         // 季节范围 S01-S03 / S01–S03（unicode en dash 也支持）
@@ -934,13 +1004,18 @@ class FilenameParser {
         // E02 / EP02（必须 E/EP 前缀）
         private val STANDALONE_EP = Regex("(?i)(?<![A-Za-z])EP?(\\d{1,3})(?!\\d)")
         private val BRACKET_EP = Regex("^\\d{1,3}$")
+        // 仅季号 S01 / S1（无集号；scene 季打包 `S01.COMPLETE` 常见）。前导非字母避免误伤 `Series`，
+        // 后跟非字母数字避免 `S1m0ne` / `S4ve` 这类标题误判。用于 stripSeasonEpisode 标题截断与季号提取。
+        private val SEASON_ONLY = Regex("(?i)(?<![A-Za-z])S(\\d{1,2})(?![\\dA-Za-z])")
         // 绝对集号：独立 1-3 位数字（可选区间 -XX），需前后为边界分隔符；命中后由 tryAbsoluteEpisode 二次校验
         private val ABSOLUTE_EP = Regex("(?:^|\\s|[-_])(\\d{1,3})(?:[-](\\d{1,3}))?(?:$|\\s|[-_])")
         // 版本标签：v2/v3/Repack/Proper/Final/Rerelease（须前置分隔符，避免误匹配 "Final Destination" 这类标题开头）
         private val VERSION_TAG = Regex("(?i)(?<=\\s|[-_.])(v\\d{1,2}|repack|proper|final|rerelease)(?=\\s|[-_.]|$)")
         // 已知技术词数字（分辨率高度等），用于绝对集号二次过滤
         private val TECH_NUMBERS = setOf(720, 480, 540, 360, 240, 1080, 2160, 4320)
-        private val DAILY_SHOW = Regex("(?<!\\d)(19|20)\\d{2}[._-](0?[1-9]|1[0-2])[._-]([0-2]?[0-9]|3[01])(?!\\d)")
+        // 日期型剧集 2024.01.15 / 2024-01-15 / 2024 01 15（分隔符含空格，以便在归一化后的 spaced 上
+        // 也能命中用于 [stripSeasonEpisode] 截断标题；年份解析在原文上 [replace] 仍正常工作）。
+        private val DAILY_SHOW = Regex("(?<!\\d)(19|20)\\d{2}[\\s._-](0?[1-9]|1[0-2])[\\s._-]([0-2]?[0-9]|3[01])(?!\\d)")
         // P3.0 日优先日期格式：15.01.2024 / 15-01-2024（欧洲日期）
         private val DAILY_SHOW_EU = Regex("(?<!\\d)(0?[1-9]|[12]\\d|3[01])[._-](0?[1-9]|1[0-2])[._-]((?:19|20)\\d{2})(?!\\d)")
         // 年份：前后不能是数字；前面也不能是汉字（否则视为标题的一部分，如 `寒战1994`）。
@@ -957,7 +1032,10 @@ class FilenameParser {
         private val VIDEO_CODEC = Regex("(?i)(?<![A-Za-z0-9])(x264|x265|h264|h265|hevc|av1|vp9|divx|xvid|mpeg-?2|mpeg-?4|vc1)(?![A-Za-z0-9])")
         private val AUDIO_CODEC = Regex("(?i)(?<![A-Za-z0-9])(AAC|AC3|EAC3|DDP|DDPA|DD|DTS|DTS-?HD|DTS-?MA|TrueHD|Atmos|FLAC|MP3|PCM|Opus)(?![A-Za-z0-9])")
         private val GROUP_TOKEN = Regex("^[A-Za-z0-9]{2,}$")
-        private val GROUP_SUFFIX = Regex("(?i)[\\-\\.]([A-Za-z0-9]{2,})$")
+        // 组名后缀：末尾 `-GROUP`，可选跟随 `.语言代码`（字幕文件 `Movie-GROUP.en.srt`）。
+        // 不把 `.` 作为组名前导分隔符，避免字幕文件末尾 `.en` 被误当作组名；
+        // 语言代码交给 [ReleaseInfoDictionary.HARD_STOPWORDS] 在标题清洗时剥离。
+        private val GROUP_SUFFIX = Regex("(?i)[\\-]([A-Za-z0-9]{2,})(?:\\.[A-Za-z]{2,3})?$")
         private val PART = Regex("(?i)(?:^|\\s)(?:CD|DISC|PART|PT)\\s?(\\d{1,2})(?:$|\\s)")
         // P1.4：Stacking 扩展
         private val PART_LETTER = Regex("(?i)(?:^|\\s)(?:CD|DISC|PART|PT)\\s?([a-d])(?:$|\\s)")

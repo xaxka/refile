@@ -111,13 +111,25 @@ class SeriesNameMatcher(
      * - 标题为空 → 回退去扩展名的原文件名（兜底，保证有 token 可比）。
      * - 罗马数字 → 阿拉伯数字（`II` → `2`），数字归一便于 `Star Wars II` 与 `Star Wars 2` 视为同串。
      * - [TextNormalizer.normalize] 跨脚本归一后按空白切 token。
+     * - 剥离尾部纯数字 token：续集/集号序号（`Star Wars 2` / `Star Wars II`→2）随集变化，
+     *   不应进入公共剧名；首位 token 不剥（保留 `2046` 这类数字标题）。
+     *   注：FilenameParser 不剥标题尾部序号（需保留 `Toy Story 4` 这类完整电影名），
+     *   故此处仅在公共剧名检测阶段剥离。
      */
     private fun headTokens(fileName: String): List<String> {
         val parsed = parser.parse(fileName)
         val rawTitle = parsed.title?.takeIf { it.isNotBlank() }
             ?: parser.splitExtension(fileName).first
         val normalized = TextNormalizer.normalize(rawTitle)
-        return normalized.split(' ').filter { it.isNotBlank() }.map { normalizeRoman(it) }
+        val tokens = normalized.split(' ').filter { it.isNotBlank() }.map { normalizeRoman(it) }
+        return dropTrailingNumeric(tokens)
+    }
+
+    /** 剥离尾部纯数字 token（集号/续集序号）；全为数字时保留原文（避免 `2046` 被清空）。 */
+    private fun dropTrailingNumeric(tokens: List<String>): List<String> {
+        var end = tokens.size
+        while (end > 1 && tokens[end - 1].all { it.isDigit() }) end--
+        return tokens.subList(0, end)
     }
 
     /** 罗马数字 → 阿拉伯数字（仅匹配 I/II/III/IV/V/VI...XX，且不与字母串冲突）。 */

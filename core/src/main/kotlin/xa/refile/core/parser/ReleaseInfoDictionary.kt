@@ -33,6 +33,10 @@ object ReleaseInfoDictionary {
         // HDR / 3D
         "hdr10", "hdr10+", "hdr", "dv", "dolbyvision", "dolby-vision", "hlg",
         "sbs", "tab", "hsbs", "htab", "mvc", "3d",
+        // Bit depth（位深，常见于 `x265 10bit` / `8bit` 尾巴）
+        "10bit", "12bit", "8bit", "6bit",
+        // HBO（HBO 标题清洗用；流媒体来源字段识别见 STREAMING_SOURCE 正则）
+        "hbo",
         // Edition (cleanTitle 也剥离，避免污染标题边界判定)
         "directorscut", "director'scut", "directors", "extended", "uncut", "unrated",
         "remastered", "imax", "special", "collector", "collectors", "limited",
@@ -49,6 +53,12 @@ object ReleaseInfoDictionary {
         "chinese", "english", "japanese", "korean", "french", "german", "spanish",
         "italian", "portuguese", "russian", "arabic", "hindi", "thai", "vietnamese",
         "forced", "default", "sdh", "cc",
+        // ISO 语言代码（字幕文件名 `Movie-GROUP.en.srt` 尾部 `.en` / `.chs` 等；不含 us/uk 等国家代码，
+        // 以免误剥 `Shameless US` 这类标题里的国家标识）。
+        // 注：2 字母代码（en/it/ma...）可能与单字标题冲突（如《It》《Ma》），由 [stripTechByStopword]
+        // 的「清空保护」兜底——当剥离会导致标题清空时保留首个 token，避免误删完整标题。
+        "en", "zh", "ja", "ko", "fr", "de", "es", "pt", "ru", "it", "cn", "tw", "hk",
+        "chs", "cht", "eng", "jpn", "kor", "chi", "fre", "ger", "spa", "por", "rus", "ita",
         // Common release tags
         "internal", "readnfo", "nfo", "sample", "proof",
         "hq", "yk", "youku",
