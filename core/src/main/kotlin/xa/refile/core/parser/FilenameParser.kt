@@ -639,7 +639,7 @@ class FilenameParser {
             CHINESE_SEASON_EP, CHINESE_NUM_SEASON_EP, CHINESE_EP_ONLY,
             CHINESE_NUM_EP, CHINESE_NUM_SEASON, STANDALONE_EP, EPISODE_WORD, DAILY_SHOW,
         )
-        val firstCut = patterns.mapNotNull { it.find(s)?.range?.first() }.minOrNull()
+        val firstCut = patterns.mapNotNull { it.find(s)?.range?.first }.minOrNull()
         return if (firstCut != null && firstCut >= 0) s.substring(0, firstCut) else s
     }
 
@@ -924,9 +924,9 @@ class FilenameParser {
         private val SEASON_WORD_ONLY = Regex(
             "(?i)(?<![a-z])(?:season|staffel|saison|temporada|series|stagione|сезон|시즌|الموسم)\\s+(\\d{1,2})(?!\\s*episode)"
         )
-        // P3.0 Episode 独立词模式：Episode 16 / Episode 16-20
+        // P3.0 Episode 独立词模式：Episode 16 / Episode 16-20 / Episode 1000（集号放宽至 4 位以支持绝对集号）
         private val EPISODE_WORD = Regex(
-            "(?i)(?<![a-z])episode\\s+(\\d{1,3})(?:-(\\d{1,3}))?"
+            "(?i)(?<![a-z])episode\\s+(\\d{1,4})(?:-(\\d{1,3}))?"
         )
         // P3.0 Anime Special/OVA 前缀识别（→ season=0）
         private val ANIME_SPECIAL_TOKEN = Regex(
@@ -958,8 +958,6 @@ class FilenameParser {
         private val BRACKET_EP = Regex("^\\d{1,3}$")
         // 仅季号 S01 / S1（无集号；scene 季打包 `S01.COMPLETE` 常见）。前导非字母避免误伤 `Series`。
         private val SEASON_ONLY = Regex("(?i)(?<![A-Za-z])S(\\d{1,2})(?!\\d)")
-        // `Episode 1000` 词形集号（动漫常见，STANDALONE_EP 的 EP?\d 无法覆盖单词 Episode）。
-        private val EPISODE_WORD = Regex("(?i)\\bEpisode\\s*\\d+")
         // 绝对集号：独立 1-3 位数字（可选区间 -XX），需前后为边界分隔符；命中后由 tryAbsoluteEpisode 二次校验
         private val ABSOLUTE_EP = Regex("(?:^|\\s|[-_])(\\d{1,3})(?:[-](\\d{1,3}))?(?:$|\\s|[-_])")
         // 版本标签：v2/v3/Repack/Proper/Final/Rerelease（须前置分隔符，避免误匹配 "Final Destination" 这类标题开头）
