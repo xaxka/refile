@@ -590,6 +590,10 @@ class PreviewViewModel @Inject constructor(
      *
      * 用 [tmdbDetail] 拉详情（[fetchDetail]），把对应 [MatchViewModel.FileMatch] 更新为
      * [MatchViewModel.MatchStatus.CONFIRMED] 后用渲染上下文快照重渲染。
+     *
+     * 用户要求：一部剧有很多集，选择一个候选后其他剧集文件也自动选择。当候选为剧集类型时，
+     * 额外对同批次中未匹配的剧集文件（parsed.isEpisode 且携带 season/episodes）用同一 TV
+     * 候选但各自的 parsed SxE 拉详情并自动确认，避免用户对同剧 N 集逐个点选候选。
      */
     fun confirmPending(filePath: String, candidate: MatchCandidate) {
         val fm = _matches.value.firstOrNull { it.filePath == filePath } ?: return
@@ -614,24 +618,108 @@ class PreviewViewModel @Inject constructor(
                     status = MatchViewModel.MatchStatus.CONFIRMED,
                     matched = meta,
                 )
-                _matches.value = _matches.value.map { if (it.filePath == filePath) confirmed else it }
+
+                // 同剧多集自动确认：仅对剧集候选生效，电影候选不自动扩散。
+                val autoConfirmed = if (candidate.mediaType == MediaType.EPISODE) {
+                    autoConfirmSiblingEpisodes(filePath, candidate, language)
+                } else {
+                    emptyList()
+                }
+
+                val autoConfirmedByPath = autoConfirmed.toMap()
+                _matches.value = _matches.value.map { f ->
+                    when (f.filePath) {
+                        filePath -> confirmed
+                        in autoConfirmedByPath -> autoConfirmedByPath.getValue(f.filePath)
+                        else -> f
+                    }
+                }
 
                 val preset = renderPreset
                 val namingOptions = renderNamingOptions
                 val today = renderToday
                 if (webDavClient == null || preset == null || namingOptions == null || today == null) return@launch
-                val newItem = renderItem(
-                    confirmed, renderRootPath, preset,
-                    resolveTemplate(confirmed), namingOptions, today,
-                )
-                _uiState.update { s ->
-                    s.copy(previewItems = s.previewItems.map { if (it.sourcePath == filePath) newItem else it })
+
+                // 重渲染所有受影响的项（用户点击的 + 自动确认的同剧集文件）
+                val affected = listOf(filePath to confirmed) + autoConfirmed
+                val updatedByPath = coroutineScope {
+                    val sem = Semaphore(16)
+                    affected.map { (path, fileMatch) ->
+                        async {
+                            sem.withPermit {
+                                path to renderItem(
+                                    fileMatch, renderRootPath, preset,
+                                    resolveTemplate(fileMatch), namingOptions, today,
+                                )
+                            }
+                        }
+                    }.awaitAll().toMap()
                 }
+                _uiState.update { s ->
+                    s.copy(previewItems = s.previewItems.map { item ->
+                        updatedByPath[item.sourcePath] ?: item
+                    })
+                }
+
+                if (autoConfirmed.isNotEmpty()) {
+                    _uiState.update { it.copy(error = "已自动匹配 ${autoConfirmed.size} 个其他剧集文件") }
+                }
+
                 detectConflicts()
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 _uiState.update { it.copy(error = "确认匹配失败：${t.message ?: "未知错误"}") }
             }
+        }
+    }
+
+    /**
+     * 自动确认同批次其他剧集文件：使用同一 TV 候选，但用每个文件自身的 parsed.season/episodes
+     * 拉详情（[fetchDetail]）。覆盖场景：用户对一部剧的某一集点选候选后，其他集（S01E02、S01E03…）
+     * 自动绑到同一 TV 的对应集，避免逐个点选。
+     *
+     * 仅处理：与触发文件不同路径、未匹配（matched == null）、parsed.isEpisode 且携带
+     * season 或 episodes 的文件。单个文件失败（网络异常或元数据不完整）返回 null 跳过，
+     * 不影响其他文件。
+     *
+     * @param excludedPath 触发确认的文件路径（已由 [confirmPending] 单独处理，不在此重复）
+     * @return (filePath -> confirmed FileMatch) 列表
+     */
+    private suspend fun autoConfirmSiblingEpisodes(
+        excludedPath: String,
+        candidate: MatchCandidate,
+        language: String,
+    ): List<Pair<String, MatchViewModel.FileMatch>> {
+        val siblings = _matches.value.filter { f ->
+            f.filePath != excludedPath &&
+                f.matched == null &&
+                f.parsed.isEpisode &&
+                (f.parsed.season != null || f.parsed.episodes.isNotEmpty())
+        }
+        if (siblings.isEmpty()) return emptyList()
+
+        return coroutineScope {
+            val sem = Semaphore(8)
+            siblings.map { f ->
+                async {
+                    sem.withPermit {
+                        try {
+                            val meta = fetchDetail(candidate, f.parsed, language)
+                            if (meta.name.isNullOrBlank() && meta.originalName.isNullOrBlank()) {
+                                null
+                            } else {
+                                f.filePath to f.copy(
+                                    status = MatchViewModel.MatchStatus.CONFIRMED,
+                                    matched = meta,
+                                )
+                            }
+                        } catch (t: Throwable) {
+                            if (t is kotlinx.coroutines.CancellationException) throw t
+                            null
+                        }
+                    }
+                }
+            }.awaitAll().filterNotNull()
         }
     }
 
