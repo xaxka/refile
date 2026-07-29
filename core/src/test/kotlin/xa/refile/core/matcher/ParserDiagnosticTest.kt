@@ -45,5 +45,12 @@ class ParserDiagnosticTest {
             val p = parser.parse(fn)
             println("DIAG|$fn|title=[${p.title}]|year=${p.year}|season=${p.season}|eps=${p.episodes}|res=${p.resolution}|src=${p.source}|edition=${p.edition}|mediaType=${p.mediaType}")
         }
+        // 故意失败，把全部 parsed 值塞进 assertion message 让其在 CI 日志可见
+        val sb = StringBuilder()
+        samples.forEach { fn ->
+            val p = parser.parse(fn)
+            sb.append("DIAG|$fn|title=[${p.title}]|year=${p.year}|season=${p.season}|eps=${p.episodes}|res=${p.resolution}|src=${p.source}|edition=${p.edition}|mediaType=${p.mediaType}\n")
+        }
+        throw AssertionError(sb.toString())
     }
 }
