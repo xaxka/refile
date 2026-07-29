@@ -51,20 +51,18 @@ jobs:
           if-no-files-found: error
 
       - name: Delete previous dev release & tag
-        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release delete dev --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" || true
 
       - name: Publish dev build to GitHub Releases
-        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: dev
           name: dev
           body: |
-            Automated dev build from `main`.
+            Automated dev build.
 
             - Branch: ${{ github.ref_name }}
             - Commit: ${{ github.sha }}
