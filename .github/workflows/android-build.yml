@@ -38,7 +38,7 @@ jobs:
           cache-cleanup: on-success
 
       - name: Run :core JVM tests
-        run: ./gradlew :core:test --console=plain --build-cache --parallel
+        run: ./gradlew :core:test --console=plain --build-cache --parallel --info
 
       - name: Build release APK
         run: ./gradlew :app:assembleRelease --console=plain --build-cache --parallel

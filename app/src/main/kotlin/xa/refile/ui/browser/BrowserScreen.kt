@@ -36,8 +36,6 @@ import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -93,9 +91,9 @@ private val MatchTvColor = Color(0xFF26A69A)
  *
  * - 顶部 TopAppBar：返回 + 可点击面包屑 + 刷新/排序菜单。
  * - 列表：每行图标（目录/视频/字幕/其它）+ 名称 + 大小 + 修改日期；iso 仅显示并置灰。
- * - 选择规则：所有类型都显示；「视频文件 + 目录」可勾选（多选模式显示复选框）；
- *   字幕/nfo/图片/iso 置灰、无复选框。非多选模式目录点击进入子目录。
- * - 多选：长按视频或目录进入；底栏显示计数 + 全选/反选 + 「匹配」。
+ * - 选择规则：所有类型都显示；「视频文件 + 目录」可选中，选中态由整行背景高亮标识（无复选框）；
+ *   字幕/nfo/图片/iso 置灰、不可选。非多选模式点击视频自动进入多选并选中，点击目录进入子目录。
+ * - 多选：长按或点击视频、长按目录进入；底栏显示计数 + 全选/反选 + 「匹配」。
  *   下一步时递归展开选中目录为视频文件路径，再进入匹配流程（保持 匹配→预览→重命名 不变）。
  * - 空目录居中提示；加载中转圈。
  * - 系统返回键：多选先退出，否则逐级回退，根目录回退到上一屏。
@@ -130,6 +128,7 @@ fun BrowserScreen(
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.common_back),
+                            tint = MaterialTheme.colorScheme.primary,
                         )
                     }
                 },
@@ -165,12 +164,14 @@ fun BrowserScreen(
                         Icon(
                             Icons.Default.Refresh,
                             contentDescription = stringResource(R.string.browser_refresh),
+                            tint = MaterialTheme.colorScheme.primary,
                         )
                     }
                     IconButton(onClick = { showSortMenu = true }) {
                         Icon(
                             Icons.Default.Sort,
                             contentDescription = stringResource(R.string.browser_sort),
+                            tint = MaterialTheme.colorScheme.primary,
                         )
                     }
                     DropdownMenu(
@@ -300,9 +301,12 @@ fun BrowserScreen(
                                         // 多选模式：目录和视频都 toggle 选中。
                                         viewModel.toggleSelected(fullPath, entry.isCollection)
                                     } else if (entry.isCollection) {
+                                        // 文件夹：进入子目录，不选中。
                                         viewModel.navigateInto(entry)
+                                    } else if (MediaFileTypes.isSelectableVideo(name)) {
+                                        // 视频文件：点击自动进入多选模式并选中该项。
+                                        viewModel.enterMultiSelect(fullPath, entry.isCollection)
                                     }
-                                    // 非多选模式视频点击无动作（保持原行为）。
                                 },
                                 onLongClick = {
                                     if (!state.multiSelectMode &&
@@ -311,7 +315,6 @@ fun BrowserScreen(
                                         viewModel.enterMultiSelect(fullPath, entry.isCollection)
                                     }
                                 },
-                                onToggle = { viewModel.toggleSelected(fullPath, entry.isCollection) },
                             )
                             HorizontalDivider()
                         }
@@ -355,6 +358,7 @@ private fun MultiSelectBottomBar(
             Icon(
                 Icons.Default.Close,
                 contentDescription = stringResource(R.string.browser_exit_multi_select),
+                tint = MaterialTheme.colorScheme.primary,
             )
         }
         Text(
@@ -541,7 +545,6 @@ private fun BrowserEntryRow(
     isSelected: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
-    onToggle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val isSelectableVideo = MediaFileTypes.isSelectableVideo(name)
@@ -559,6 +562,7 @@ private fun BrowserEntryRow(
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
     val iconTint = when {
         entry.isCollection && !multiSelectMode -> DirAccentColor
+        isSelectableVideo -> DirAccentColor
         multiSelectMode && !isSelectableVideo && !entry.isCollection -> onSurfaceVariant
         isDisplayOnly -> onSurfaceVariant
         else -> onSurface
@@ -568,9 +572,9 @@ private fun BrowserEntryRow(
         isDisplayOnly -> onSurfaceVariant
         else -> onSurface
     }
-    // Task 5.5：多选选中行加 primaryContainer 半透明高亮（卡片态）。
+    // 多选选中行加 primaryContainer 高亮（无复选框，靠背景色标识选中态）。
     val rowBackground = if (isSelected && multiSelectMode) {
-        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
     } else {
         Color.Transparent
     }
@@ -583,32 +587,18 @@ private fun BrowserEntryRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 左侧固定 48dp 选择/图标区：多选模式下「可选视频 + 目录」显示 Checkbox，其余显示 Icon。
-        // 固定宽度，避免进入/退出多选时整行内容横向位移（用户反馈"长按选择尺寸改变"）。
+        // 左侧固定 48dp 图标区：始终显示图标，选中态由整行背景高亮标识。
+        // 固定宽度，避免进入/退出多选时整行内容横向位移。
         Box(
             modifier = Modifier.size(48.dp),
             contentAlignment = Alignment.Center,
         ) {
-            if (multiSelectMode && (isSelectableVideo || entry.isCollection)) {
-                // Checkbox 选中态默认对勾用 onPrimary（近黑），与浅蓝 primary 框搭配不美观，
-                // 这里改为白色对勾 + 主题色框，与 Switch 风格保持一致。
-                Checkbox(
-                    checked = isSelected,
-                    onCheckedChange = { onToggle() },
-                    colors = CheckboxDefaults.colors(
-                        checkedColor = MaterialTheme.colorScheme.primary,
-                        uncheckedColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        checkmarkColor = MaterialTheme.colorScheme.surface,
-                    ),
-                )
-            } else {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = iconTint,
-                    modifier = Modifier.size(28.dp),
-                )
-            }
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(28.dp),
+            )
         }
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {

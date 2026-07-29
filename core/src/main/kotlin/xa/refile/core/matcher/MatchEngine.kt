@@ -436,9 +436,12 @@ class MatchEngine(
             }
         }
 
-        // 单候选直接采用：搜索/过滤后仅剩 1 个候选时无需用户确认，避免单候选仍进待确认列表。
+        // 单候选直接采用：搜索仅返回 1 条结果时无需用户确认，避免单候选仍进待确认列表。
         // 场景：冷门剧/电影搜索仅返回 1 条结果，用户无需在预览页手动点选。
-        if (filtered.size == 1) {
+        // 注意：仅在原始候选数为 1 时触发；若因 Feature #28 年份过滤把多候选缩减为 1，
+        // 仍走下方正常打分路径——剩余候选可能是低分匹配，应进 NeedsConfirm 由用户裁决，
+        // 而非盲目 Auto（修复 MatchEngineTest 三处用例：低分单候选应为 NeedsConfirm）。
+        if (candidates.size == 1 && filtered.size == 1) {
             val only = filtered.first()
             return MatchDecision.Auto(ScoredCandidate(only, scorer.score(parsed, only)))
         }
