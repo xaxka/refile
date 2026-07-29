@@ -817,14 +817,14 @@ private fun IconActionButton(
 }
 
 /**
- * Task 3.4：候选海报墙网格（2 列），候选墙交互源自原独立匹配页（已合并入预览页）。选中候选后回调 [onConfirm]。
+ * Task 3.4：候选海报墙网格（3 列），候选墙交互源自原独立匹配页（已合并入预览页）。选中候选后回调 [onConfirm]。
  */
 @Composable
 private fun CandidatePosterGrid(
     candidates: List<MatchViewModel.Candidate>,
     onConfirm: (MatchViewModel.Candidate) -> Unit,
 ) {
-    val columns = 2
+    val columns = 3
     candidates.chunked(columns).forEach { rowCandidates ->
         Row(
             modifier = Modifier.fillMaxWidth(),
