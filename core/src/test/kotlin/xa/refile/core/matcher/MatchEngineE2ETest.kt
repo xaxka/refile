@@ -1527,7 +1527,7 @@ class MatchEngineE2ETest {
     /** 从决策中提取 best 候选的 tmdbId（Auto/NeedsConfirm 有效，NoMatch 返回 null）。 */
     private fun bestTmdbId(decision: MatchDecision): Int? = when (decision) {
         is MatchDecision.Auto -> decision.best.candidate.tmdbId
-        is MatchDecision.NeedsConfirm -> decision.best.candidate.tmdbId
+        is MatchDecision.NeedsConfirm -> decision.candidates.firstOrNull()?.candidate?.tmdbId
         MatchDecision.NoMatch -> null
     }
 }
