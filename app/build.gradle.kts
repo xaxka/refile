@@ -21,7 +21,7 @@ android {
         applicationId = "xa.refile"
         minSdk = 26
         targetSdk = 34
-        // 版本号格式: versionName=YY.M.D，versionCode=YYMMDDHH
+        // 版本号格式: versionName=YY.M.D，versionCode=YYMMDDHHt（9 位，t=十分钟位 0-5）
         // 年份取后两位，使用中国时区(Asia/Shanghai)
         val tz = TimeZone.getTimeZone("Asia/Shanghai")
         val now = Calendar.getInstance(tz)
@@ -29,7 +29,9 @@ android {
         val month = now.get(Calendar.MONTH) + 1
         val day = now.get(Calendar.DAY_OF_MONTH)
         val hour = now.get(Calendar.HOUR_OF_DAY)
-        versionCode = year * 1000000 + month * 10000 + day * 100 + hour
+        val tenMin = now.get(Calendar.MINUTE) / 10 // 0-5，每 10 分钟递增一位
+        // 2026 年最大 261231235 ≈ 2.6e8，远低于 int32 上限(2.1e9)
+        versionCode = year * 10000000 + month * 100000 + day * 1000 + hour * 10 + tenMin
         versionName = "$year.$month.$day"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
