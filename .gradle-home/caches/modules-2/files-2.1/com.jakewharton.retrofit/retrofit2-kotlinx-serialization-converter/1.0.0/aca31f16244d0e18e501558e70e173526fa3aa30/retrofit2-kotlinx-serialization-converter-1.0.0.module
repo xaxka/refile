@@ -1,0 +1,110 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "com.jakewharton.retrofit",
+    "module": "retrofit2-kotlinx-serialization-converter",
+    "version": "1.0.0",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.1"
+    }
+  },
+  "variants": [
+    {
+      "name": "apiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.jvm.version": 8,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "dependencies": [
+        {
+          "group": "com.squareup.retrofit2",
+          "module": "retrofit",
+          "version": {
+            "requires": "2.9.0"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-serialization-core",
+          "version": {
+            "requires": "1.5.0"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib-jdk8",
+          "version": {
+            "requires": "1.8.10"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "retrofit2-kotlinx-serialization-converter-1.0.0.jar",
+          "url": "retrofit2-kotlinx-serialization-converter-1.0.0.jar",
+          "size": 11521,
+          "sha512": "024653b82ea1cff19df33df4702d3be76bf7b6555bba3a4c6cd822d6f0816bd2d1c7ddffa322239b124f0bf35d94eeacd3a9230b1c14bfbbe83ece6f29be64f7",
+          "sha256": "d354b514772e2c70d13d3711b3fabfca74b65c3f397c36afcf5ca8ef5e93cd81",
+          "sha1": "99f70a2daf3256f048893c79a2b795f476f1789f",
+          "md5": "13ee7f8959a1d4b6d3c1d1e55a1cce5a"
+        }
+      ]
+    },
+    {
+      "name": "runtimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.jvm.version": 8,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "dependencies": [
+        {
+          "group": "com.squareup.retrofit2",
+          "module": "retrofit",
+          "version": {
+            "requires": "2.9.0"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-serialization-core",
+          "version": {
+            "requires": "1.5.0"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib-jdk8",
+          "version": {
+            "requires": "1.8.10"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "retrofit2-kotlinx-serialization-converter-1.0.0.jar",
+          "url": "retrofit2-kotlinx-serialization-converter-1.0.0.jar",
+          "size": 11521,
+          "sha512": "024653b82ea1cff19df33df4702d3be76bf7b6555bba3a4c6cd822d6f0816bd2d1c7ddffa322239b124f0bf35d94eeacd3a9230b1c14bfbbe83ece6f29be64f7",
+          "sha256": "d354b514772e2c70d13d3711b3fabfca74b65c3f397c36afcf5ca8ef5e93cd81",
+          "sha1": "99f70a2daf3256f048893c79a2b795f476f1789f",
+          "md5": "13ee7f8959a1d4b6d3c1d1e55a1cce5a"
+        }
+      ]
+    }
+  ]
+}

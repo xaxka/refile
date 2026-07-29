@@ -1,0 +1,95 @@
+{
+  "formatVersion" : "1.1",
+  "createdBy" : {
+    "gradle" : {
+      "version" : "7.4.2"
+    }
+  },
+  "component" : {
+    "group" : "com.github.bitfireAT",
+    "module" : "dav4jvm",
+    "version" : "2.2.1",
+    "attributes" : {
+      "org.gradle.status" : "release"
+    }
+  },
+  "variants" : [ {
+    "name" : "apiElements",
+    "attributes" : {
+      "org.gradle.category" : "library",
+      "org.gradle.dependency.bundling" : "external",
+      "org.gradle.jvm.environment" : "standard-jvm",
+      "org.gradle.jvm.version" : "8",
+      "org.gradle.libraryelements" : "jar",
+      "org.gradle.usage" : "java-api",
+      "org.jetbrains.kotlin.platform.type" : "jvm"
+    },
+    "dependencies" : [ {
+      "group" : "com.squareup.okhttp3",
+      "module" : "okhttp",
+      "version" : {
+        "requires" : "4.10.0"
+      }
+    }, {
+      "group" : "org.ogce",
+      "module" : "xpp3",
+      "version" : {
+        "requires" : "1.1.6"
+      }
+    } ],
+    "files" : [ {
+      "name" : "dav4jvm-2.2.1.jar",
+      "url" : "dav4jvm-2.2.1.jar",
+      "size" : 294557,
+      "sha512" : "55ff3e89e0fb927bbf530cd27d63945529288414db0dbd402b965b062d90d57e73a181eb2f26880777b4598ea0a812139f821e93af2232e1b839045e026620f1",
+      "sha256" : "e6b8a9ff7ada0841198b18de2d6fd935f1f8754d3c84b8e8e3dc1840648d595d",
+      "sha1" : "b1641ae3edfd9edb4ffda38ddf69a89ddf4fdf5a",
+      "md5" : "c22ff3f578864ed43435d3fa78a9c79f"
+    } ]
+  }, {
+    "name" : "runtimeElements",
+    "attributes" : {
+      "org.gradle.category" : "library",
+      "org.gradle.dependency.bundling" : "external",
+      "org.gradle.jvm.environment" : "standard-jvm",
+      "org.gradle.jvm.version" : "8",
+      "org.gradle.libraryelements" : "jar",
+      "org.gradle.usage" : "java-runtime",
+      "org.jetbrains.kotlin.platform.type" : "jvm"
+    },
+    "dependencies" : [ {
+      "group" : "org.jetbrains.kotlin",
+      "module" : "kotlin-stdlib-jdk7",
+      "version" : {
+        "requires" : "1.7.20"
+      }
+    }, {
+      "group" : "org.apache.commons",
+      "module" : "commons-lang3",
+      "version" : {
+        "requires" : "3.8.1"
+      }
+    }, {
+      "group" : "com.squareup.okhttp3",
+      "module" : "okhttp",
+      "version" : {
+        "requires" : "4.10.0"
+      }
+    }, {
+      "group" : "org.ogce",
+      "module" : "xpp3",
+      "version" : {
+        "requires" : "1.1.6"
+      }
+    } ],
+    "files" : [ {
+      "name" : "dav4jvm-2.2.1.jar",
+      "url" : "dav4jvm-2.2.1.jar",
+      "size" : 294557,
+      "sha512" : "55ff3e89e0fb927bbf530cd27d63945529288414db0dbd402b965b062d90d57e73a181eb2f26880777b4598ea0a812139f821e93af2232e1b839045e026620f1",
+      "sha256" : "e6b8a9ff7ada0841198b18de2d6fd935f1f8754d3c84b8e8e3dc1840648d595d",
+      "sha1" : "b1641ae3edfd9edb4ffda38ddf69a89ddf4fdf5a",
+      "md5" : "c22ff3f578864ed43435d3fa78a9c79f"
+    } ]
+  } ]
+}

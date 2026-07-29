@@ -49,7 +49,7 @@ class WebDavClient(
     private val username: String?,
     private val password: String?,
     client: OkHttpClient = OkHttpClient(),
-) {
+) : FileClient {
     // dav4jvm 要求 client 不自动跟随重定向（它自行处理 30x，否则 PROPFIND 被降级为 GET）。
     // 保留注入 client 的 DNS/超时等配置，仅追加认证与重定向设置。
     private val httpClient: OkHttpClient = client.newBuilder()
@@ -79,7 +79,7 @@ class WebDavClient(
      * 非 2xx/207 抛 [WebDavException]（含 HTTP 状态码），便于调用方区分「读取失败」与
      * 「空目录」。空目录的 PROPFIND Depth 1 仍会返回 1 条（目录自身），不会抛异常。
      */
-    suspend fun propfind(path: String, depth: Int): List<WebDavEntry> = withContext(Dispatchers.IO) {
+    override suspend fun propfind(path: String, depth: Int): List<WebDavEntry> = withContext(Dispatchers.IO) {
         val results = mutableListOf<WebDavEntry>()
         try {
             DavResource(httpClient, resolveCollectionUrl(path)).propfind(
@@ -111,7 +111,7 @@ class WebDavClient(
      * - `overwrite=false`（默认）发送 `Overwrite: F`（不覆盖）；`overwrite=true` 不发送
      *   Overwrite 头（交由服务器默认行为）。成功（2xx，典型 201/204）返回 true，其余返回 false。
      */
-    suspend fun move(fromPath: String, toPath: String, overwrite: Boolean = false): Boolean =
+    override suspend fun move(fromPath: String, toPath: String, overwrite: Boolean): Boolean =
         withContext(Dispatchers.IO) {
             try {
                 // dav4jvm 的 forceOverride=true 发送 Overwrite: F（不覆盖）；
@@ -135,7 +135,7 @@ class WebDavClient(
      * 发 MKCOL 创建目录。405（已存在/不允许）视为幂等成功（返回 true）。
      * 201 返回 true，其余状态码返回 false。
      */
-    suspend fun mkcol(path: String): Boolean = withContext(Dispatchers.IO) {
+    override suspend fun mkcol(path: String): Boolean = withContext(Dispatchers.IO) {
         try {
             DavResource(httpClient, resolveUrl(path)).mkCol(null) { }
             true
@@ -163,7 +163,7 @@ class WebDavClient(
      * - 207 或 2xx → [ConnectionResult.Success]（附带解析到的资源）。
      * - 其它 → [ConnectionResult.HttpError]。
      */
-    suspend fun testConnection(path: String): ConnectionResult = withContext(Dispatchers.IO) {
+    override suspend fun testConnection(path: String): ConnectionResult = withContext(Dispatchers.IO) {
         val results = mutableListOf<WebDavEntry>()
         try {
             DavResource(httpClient, resolveCollectionUrl(path)).propfind(

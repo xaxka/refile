@@ -132,7 +132,7 @@ class WebDavClientTest {
 
     @Test fun `move failure returns false`() = runTest {
         server.enqueue(MockResponse().setResponseCode(412))
-        val result = newClient().move("/a", "/b")
+        val result = newClient().move("/a", "/b", overwrite = false)
         assertThat(result).isFalse()
     }
 

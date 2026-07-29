@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--Licensed to the Apache Software Foundation (ASF) under one or more contributor 
+	license agreements. See the NOTICE file distributed with this work for additional 
+	information regarding copyright ownership. The ASF licenses this file to 
+	you under the Apache License, Version 2.0 (theÏ "License"); you may not use 
+	this file except in compliance with the License. You may obtain a copy of 
+	the License at http://www.apache.org/licenses/LICENSE-2.0 Unless required 
+	by applicable law or agreed to in writing, software distributed under the 
+	License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS 
+	OF ANY ~ KIND, either express or implied. See the License for the specific 
+	language governing permissions and limitations under the License. -->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+
+	<modelVersion>4.0.0</modelVersion>
+
+	<groupId>org.ogce</groupId>
+	<artifactId>xpp3</artifactId>
+	<name>XPP3</name>
+	<description>XML Pull parser library developed by Extreme Computing Lab, Indiana University</description>
+	<version>1.1.6</version>
+
+	<url>http://www.extreme.indiana.edu/xpp/</url>
+
+	<licenses>
+		<license>
+			<name>The Apache Software License, Version 2.0</name>
+			<url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+			<distribution>repo</distribution>
+		</license>
+	</licenses>
+
+	<scm>
+		<connection>scm:svn:http://svn.code.sf.net/p/ogce/svn/extreme-repos/xmlpullparser3/tags/xpp3-1.1.6</connection>
+		<developerConnection>scm:svn:https://svn.code.sf.net/p/ogce/svn/extreme-repos/xmlpullparser3/tags/xpp3-1.1.6</developerConnection>
+		<url>https://sourceforge.net/p/ogce/svn/7748/tree/extreme-repos/xmlpullparser3/tags/xpp3-1.1.6</url>
+	</scm>
+
+	<mailingLists>
+
+		<mailingList>
+			<name>Airavata Developer List</name>
+			<subscribe>dev-subscribe@airavata.apache.org</subscribe>
+			<unsubscribe>dev-unsubscribe@airavata.apache.org</unsubscribe>
+			<post>mailto:dev@airavata.apache.org</post>
+			<archive>http://mail-archives.apache.org/mod_mbox/airavata-dev/</archive>
+		</mailingList>
+
+	</mailingLists>
+
+	<issueManagement>
+		<url>https://gateways.atlassian.net/browse/EXTREME</url>
+	</issueManagement>
+
+	<developers>
+		<developer>
+			<id>aslom</id>
+			<name>Aleksander Slominski</name>
+			<email>aslom@us.ibm.com</email>
+			<timezone>-5</timezone>
+			<organization>IBM</organization>
+			<organizationUrl>http://www.ibm.com/us/en/</organizationUrl>
+		</developer>
+		<developer>
+			<id>chathura</id>
+			<name>Chathura Herath</name>
+			<email>chathura@apache.org</email>
+			<timezone>-5</timezone>
+			<organization>Knight Capital Group</organization>
+			<organizationUrl>http://www.knight.com</organizationUrl>
+		</developer>
+		<developer>
+			<id>chinthaka</id>
+			<name>Eran Chinthaka</name>
+			<email>chinthaka@apache.org</email>
+			<timezone>-8</timezone>
+			<organization>Wize Commerce</organization>
+			<organizationUrl>http://www.wizecommerce.com/</organizationUrl>
+		</developer>
+		<developer>
+			<id>mpierce</id>
+			<name>Marlon Pierce</name>
+			<email>mpierce@apache.org</email>
+			<timezone>-5</timezone>
+			<organization>Indiana University</organization>
+			<organizationUrl>http://www.iub.edu</organizationUrl>
+		</developer>
+		<developer>
+			<id>hemapani</id>
+			<name>Srinath Perera</name>
+			<email>hemapani@apache.org</email>
+			<timezone>+5.5</timezone>
+			<organization>WSO2</organization>
+			<organizationUrl>http://wso2.com/</organizationUrl>
+		</developer>
+		<developer>
+			<id>smarru</id>
+			<name>Suresh Marru</name>
+			<email>smarru@apache.org</email>
+			<timezone>-5</timezone>
+			<organization>Indiana University</organization>
+			<organizationUrl>http://www.iub.edu</organizationUrl>
+		</developer>
+		<developer>
+			<id>thilina</id>
+			<name>Thilina Gunaratne</name>
+			<email>thilina@apache.org</email>
+			<timezone>-5</timezone>
+			<organization>Indiana University</organization>
+			<organizationUrl>http://www.iub.edu</organizationUrl>
+		</developer>
+	</developers>
+
+	<parent>
+		<groupId>org.sonatype.oss</groupId>
+		<artifactId>oss-parent</artifactId>
+		<version>7</version>
+	</parent>
+
+	<properties>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+		<skipTests>true</skipTests>
+		<junit.version>4.7</junit.version>
+	</properties>
+
+	<dependencies>
+		<dependency>
+			<groupId>junit</groupId>
+			<artifactId>junit</artifactId>
+			<version>${junit.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>jakarta-regexp</groupId>
+			<artifactId>jakarta-regexp</artifactId>
+			<version>1.4</version>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<plugins>
+			<plugin>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<version>3.1</version>
+				<configuration>
+					<source>1.6</source>
+					<target>1.6</target>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-javadoc-plugin</artifactId>
+				<version>2.7</version>
+				<executions>
+					<execution>
+						<id>attach-javadocs</id>
+						<goals>
+							<goal>jar</goal>
+						</goals>
+						<configuration>
+							<skip>false</skip>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+		</plugins>
+	</build>
+</project>

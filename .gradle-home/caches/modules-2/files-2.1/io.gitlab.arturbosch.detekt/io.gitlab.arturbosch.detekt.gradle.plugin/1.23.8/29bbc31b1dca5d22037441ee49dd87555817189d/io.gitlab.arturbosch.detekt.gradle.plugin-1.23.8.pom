@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>io.gitlab.arturbosch.detekt</groupId>
+  <artifactId>io.gitlab.arturbosch.detekt.gradle.plugin</artifactId>
+  <version>1.23.8</version>
+  <packaging>pom</packaging>
+  <name>detekt</name>
+  <description>Static code analysis for Kotlin</description>
+  <url>https://detekt.dev</url>
+  <licenses>
+    <license>
+      <name>The Apache Software License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>detekt Developers</id>
+      <name>detekt Developers</name>
+      <email>info@detekt.dev</email>
+    </developer>
+  </developers>
+  <scm>
+    <url>https://github.com/detekt/detekt</url>
+  </scm>
+  <dependencies>
+    <dependency>
+      <groupId>io.gitlab.arturbosch.detekt</groupId>
+      <artifactId>detekt-gradle-plugin</artifactId>
+      <version>1.23.8</version>
+    </dependency>
+  </dependencies>
+</project>
