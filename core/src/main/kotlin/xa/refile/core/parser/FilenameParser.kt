@@ -618,6 +618,7 @@ class FilenameParser {
             { s, _ -> stripKnownGroupSuffix(s, knownGroup) },
             ::stripTechByStopwords,
             { s, _ -> stripYearTokens(s, releaseYear) },
+            ::stripResolutionWxH,
             ::normalizeWhitespace,
         )
         // 迭代至稳定（最多 3 轮，避免无限循环）
@@ -674,6 +675,13 @@ class FilenameParser {
         val pattern = Regex("(?i)[\\-\\.]" + Regex.escape(knownGroup) + "$")
         return pattern.replace(s, " ")
     }
+
+    /**
+     * 剥离 WxH 分辨率片段（如 `1920x1080` / `1280x720`）。
+     * 这类 token 不会出现在 [ReleaseInfoDictionary.HARD_STOPWORDS]（仅含 `1080p` 等高度+p 形态），
+     * 若不单独剥离会残留进标题（如 `Demo.Movie.2024.1920x1080` → 标题误得 `Demo Movie 1920x1080`）。
+     */
+    private fun stripResolutionWxH(s: String, ignored: Boolean): String = s.replace(RESOLUTION_WXH, " ")
 
     /**
      * P0.1：用 [ReleaseInfoDictionary] 词表分词判定标题边界。
@@ -1020,7 +1028,8 @@ class FilenameParser {
         private val DAILY_SHOW_EU = Regex("(?<!\\d)(0?[1-9]|[12]\\d|3[01])[._-](0?[1-9]|1[0-2])[._-]((?:19|20)\\d{2})(?!\\d)")
         // 年份：前后不能是数字；前面也不能是汉字（否则视为标题的一部分，如 `寒战1994`）。
         // 这样 `寒战1994` 中的 1994 不被识别为独立年份，而 `Cold.War.1994` 中点分隔的 1994 仍被识别。
-        private val YEAR = Regex("(?<!\\d)(?<!\\p{script=Han})(19\\d{2}|20\\d{2})(?!\\d)")
+        // 后置负向断言 `(?![xX]\d)`：避免 WxH 分辨率宽度（如 `1920x1080` 中的 1920）被误判为年份。
+        private val YEAR = Regex("(?<!\\d)(?<!\\p{script=Han})(19\\d{2}|20\\d{2})(?!\\d)(?![xX]\\d)")
         private val YEAR_IN_PARENS = Regex("(?i)(19\\d{2}|20\\d{2})")
         // B9: 不能用 \b——下划线是 \w 字符，\b 不会在 _ 与字母/数字间匹配，
         // 导致下划线分隔文件名（The_Last_of_Us_S01E02_1080p_WEB-DL_x264）的 _1080p/_WEB-DL/_x264
