@@ -590,12 +590,8 @@ class MatchEngineE2ETest {
         assertThat(parsed.title).contains("Trilogy")
         // 三个候选标题都不与 "The Dark Knight Trilogy" 完全匹配；年份 2012 仅匹配候选 3
         // 候选 3 标题不完全等 + 年份差 0（保留）但相似度低；候选 1/2 年份差 >5 + 标题不完全等 → 淘汰
-        // 剩余候选 1 个走打分 → Auto（candidates.size==3, filtered.size==1, 非单候选快捷方式）
-        // 实际：候选 3 标题 substringSim 较高，可能 Auto 或 NeedsConfirm；断言决策类型即可
-        assertThat(decision).isAnyOf(
-            MatchDecision.Auto::class.java,
-            MatchDecision.NeedsConfirm::class.java,
-        )
+        // 剩余候选打分排序，标题相似度不足触发硬信号，低于 autoThreshold → NeedsConfirm（非 NoMatch）
+        assertThat(decision).isInstanceOf(MatchDecision.NeedsConfirm::class.java)
     }
 
     @Test fun `movie collection Matrix Trilogy year range low match`() {
@@ -1130,7 +1126,8 @@ class MatchEngineE2ETest {
         val (parsed, decision) = runEndToEnd(
             fileName = "攻殻機動隊.1995.1080p.BluRay.x265.FLAC.mkv",
             candidates = listOf(
-                movie(126, "Ghost in the Shell", 1995),
+                // 真实 TMDB 条目携带 originalName（日文原名）；评分器经 originalName 维度命中
+                MatchCandidate(tmdbId = 126, name = "Ghost in the Shell", originalName = "攻殻機動隊", year = 1995, mediaType = MediaType.MOVIE),
                 movie(null, "Ghost in the Shell", 2017),
             ),
         )
