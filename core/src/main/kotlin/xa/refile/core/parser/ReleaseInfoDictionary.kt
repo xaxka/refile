@@ -54,7 +54,9 @@ object ReleaseInfoDictionary {
         "italian", "portuguese", "russian", "arabic", "hindi", "thai", "vietnamese",
         "forced", "default", "sdh", "cc",
         // ISO 语言代码（字幕文件名 `Movie-GROUP.en.srt` 尾部 `.en` / `.chs` 等；不含 us/uk 等国家代码，
-        // 以免误剥 `Shameless US` 这类标题里的国家标识）
+        // 以免误剥 `Shameless US` 这类标题里的国家标识）。
+        // 注：2 字母代码（en/it/ma...）可能与单字标题冲突（如《It》《Ma》），由 [stripTechByStopword]
+        // 的「清空保护」兜底——当剥离会导致标题清空时保留首个 token，避免误删完整标题。
         "en", "zh", "ja", "ko", "fr", "de", "es", "pt", "ru", "it", "cn", "tw", "hk",
         "chs", "cht", "eng", "jpn", "kor", "chi", "fre", "ger", "spa", "por", "rus", "ita",
         // Common release tags
