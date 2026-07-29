@@ -281,12 +281,24 @@ class MatchViewModel @Inject constructor(
         val seriesResult = seriesMatcher.match(tvFileNames)
         if (seriesResult.seriesNames.isEmpty()) return emptyMap()
 
-        // 每个剧名并发预取一次 searchTv（剧名间无依赖；sessionCache 也会去重相同 query）
+        // 每个剧名并发预取一次 searchTv（剧名间无依赖；sessionCache 也会去重相同 query）。
+        // 用组内代表文件的原始标题（parsed.title + titleAliases）作为查询，而非 SeriesNameMatcher
+        // 归一后的拼音 seriesName —— TMDB search 无法用拼音匹配 CJK 原名/英文名，会导致中文剧
+        // （如「天命大神皇」→ 拼音 "tian ming da shen huang"）批量匹配搜不到。
         val seriesCandidates = coroutineScope {
             seriesResult.seriesNames.associateWith { sn ->
                 async {
-                    runCatching { tmdbSearch.searchTv(sn, year = null, language = language) }
-                        .getOrNull() ?: emptyList()
+                    val repLocalIdx = seriesResult.fileIndices[sn]?.firstOrNull()
+                        ?: return@async emptyList<MediaMetadata>()
+                    if (repLocalIdx !in tvFileIndices.indices) return@async emptyList<MediaMetadata>()
+                    val repParsed = parsedByIndex[tvFileIndices[repLocalIdx]]
+                    val searchTitles = listOfNotNull(repParsed.title?.takeIf { it.isNotBlank() }) +
+                        repParsed.titleAliases.filter { it.isNotBlank() }
+                    if (searchTitles.isEmpty()) return@async emptyList<MediaMetadata>()
+                    searchTitles.map { q ->
+                        runCatching { tmdbSearch.searchTv(q, year = null, language = language) }
+                            .getOrNull() ?: emptyList()
+                    }.flatten().distinctBy { it.id }
                 }
             }.mapValues { it.value.await() }
         }
@@ -396,7 +408,8 @@ class MatchViewModel @Inject constructor(
      * 命中则填充 candidate.season/episodes 重打分，可能升级为 Auto。
      *
      * Feature #23 / #24：[preFetchedCandidates] 非空时跳过 per-file 搜索（候选已由批量预取步骤提供，
-     * 如 [SeriesNameMatcher] / [VideoListResolver] 派发的同剧 / 同片共享候选）；为空则回退到原 per-file 搜索。
+     * 如 [SeriesNameMatcher] / [VideoListResolver] 派发的同剧 / 同片共享候选）；为 null 或空列表则回退到
+     * 原 per-file 搜索（批量预取失败/无结果时不丢失匹配机会）。
      */
     private suspend fun runMatchForFile(
         parsed: ParsedFilename,
@@ -457,7 +470,7 @@ class MatchViewModel @Inject constructor(
         // Feature #23 / #24：批量预取候选命中 → 跳过 per-file 搜索；否则回退到原 per-file 搜索路径。
         val searchResults: List<MediaMetadata>
         val candidates: List<MatchCandidate>
-        if (preFetchedCandidates != null) {
+        if (!preFetchedCandidates.isNullOrEmpty()) {
             searchResults = preFetchedCandidates
             candidates = preFetchedCandidates.map { it.toMatchCandidate() }
         } else {

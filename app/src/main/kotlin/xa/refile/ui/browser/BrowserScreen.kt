@@ -128,7 +128,7 @@ fun BrowserScreen(
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.common_back),
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = MaterialTheme.colorScheme.onSurface,
                         )
                     }
                 },
@@ -164,14 +164,14 @@ fun BrowserScreen(
                         Icon(
                             Icons.Default.Refresh,
                             contentDescription = stringResource(R.string.browser_refresh),
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = MaterialTheme.colorScheme.onSurface,
                         )
                     }
                     IconButton(onClick = { showSortMenu = true }) {
                         Icon(
                             Icons.Default.Sort,
                             contentDescription = stringResource(R.string.browser_sort),
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = MaterialTheme.colorScheme.onSurface,
                         )
                     }
                     DropdownMenu(
