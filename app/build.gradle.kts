@@ -21,8 +21,7 @@ android {
         applicationId = "xa.refile"
         minSdk = 26
         targetSdk = 34
-        // 版本号格式: versionName=YY.M.D-HH:mm，versionCode 以 2024 为基准年紧凑编码避免 32 位整数溢出
-        // versionCode = (YY-24)*10000000 + MM*1000000 + DD*10000 + HH*100 + mm
+        // 版本号格式: versionName=YY.M.D，versionCode=YYMMDDHHmm（10 位，基准年 2000 避免溢出）
         // 年份取后两位，使用中国时区(Asia/Shanghai)
         val tz = TimeZone.getTimeZone("Asia/Shanghai")
         val now = Calendar.getInstance(tz)
@@ -31,9 +30,11 @@ android {
         val day = now.get(Calendar.DAY_OF_MONTH)
         val hour = now.get(Calendar.HOUR_OF_DAY)
         val minute = now.get(Calendar.MINUTE)
-        // 基准年 2024（YY=24）起算，支持到 2034 年（YY=34）仍 < 2100000000 上限
-        versionCode = (year - 24) * 10000000 + month * 1000000 + day * 10000 + hour * 100 + minute
-        versionName = "$year.$month.$day-$hour:${minute.toString().padStart(2, '0')}"
+        // 直接 YYMMDDHHmm 在 2026 年 = 2.6e9 超过 int32 上限(2.1e9)；
+        // 以 2000 为基准年 (year-0)... 仍溢出。改用基准年偏移：YY-20 作为高位
+        // 2026 → (26-20)=6 → 6MMDDHHmm，2034 年前均 < 2.1e9 上限
+        versionCode = (year - 20) * 100000000 + month * 1000000 + day * 10000 + hour * 100 + minute
+        versionName = "$year.$month.$day"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
