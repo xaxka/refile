@@ -40,7 +40,7 @@ jobs:
           build-scan-publish: true
           build-scan-terms-of-use-url: "https://gradle.com/help/legal-terms-of-use"
           build-scan-terms-of-use-agree: "yes"
-          cache-encryption-key: cmVmaWxlLWNjLXYx
+          cache-encryption-key: cmVmaWxlLWNjLXYxLXNlY3JldC1rZXk=
 
       - name: Test, lint & build
         env:
