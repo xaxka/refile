@@ -3,7 +3,7 @@ name: Android Build
 on:
   push:
     branches:
-      - '**'
+      - main
   workflow_dispatch:
 
 permissions:
@@ -38,8 +38,9 @@ jobs:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
           cache-cleanup: on-success
           build-scan-publish: true
-          build-scan-terms-of-service-url: "https://gradle.com/terms-of-service"
-          build-scan-terms-of-service-agree: "yes"
+          build-scan-terms-of-use-url: "https://gradle.com/help/legal-terms-of-use"
+          build-scan-terms-of-use-agree: "yes"
+          cache-encryption-key: refile-cc-v1
 
       - name: Test, lint & build
         env:
