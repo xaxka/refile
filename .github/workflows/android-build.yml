@@ -15,35 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ---- Job 1: Core JVM tests (与 build-release 并行) ----
-  core-test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 1
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v5
-        with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
-          cache-cleanup: on-success
-
-      - name: Run :core JVM tests
-        run: ./gradlew :core:test --no-daemon --build-cache --configuration-cache --parallel
-
-  # ---- Job 2: App lint & tests (与 build-release 并行) ----
-  app-lint-test:
+  build-and-publish:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -69,11 +41,17 @@ jobs:
           build-scan-terms-of-service-url: "https://gradle.com/terms-of-service"
           build-scan-terms-of-service-agree: "yes"
 
-      - name: Run app unit tests
-        run: ./gradlew :app:testReleaseUnitTest --no-daemon --build-cache --configuration-cache --parallel
-
-      - name: Run lint on release build
-        run: ./gradlew :app:lintVitalRelease --no-daemon --build-cache --configuration-cache --parallel
+      - name: Test, lint & build
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: refile123
+          KEY_ALIAS: refile
+          KEY_PASSWORD: refile123
+        run: |
+          ./gradlew :core:test :app:testReleaseUnitTest :app:lintVitalRelease \
+            :app:assembleRelease \
+            -x lintVitalAnalyzeRelease -x lintVitalReportRelease -x generateReleaseLintVitalReportModel \
+            --build-cache --configuration-cache --parallel
 
       - name: Upload lint reports
         if: always()
@@ -83,42 +61,6 @@ jobs:
           path: app/build/reports/lint-results-release.html
           if-no-files-found: ignore
 
-  # ---- Job 3: Release APK build (与 core-test、app-lint-test 并行) ----
-  build-release:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 1
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v5
-        with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
-          cache-cleanup: on-success
-          build-scan-publish: true
-          build-scan-terms-of-service-url: "https://gradle.com/terms-of-service"
-          build-scan-terms-of-service-agree: "yes"
-
-      - name: Build release APK
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: refile123
-          KEY_ALIAS: refile
-          KEY_PASSWORD: refile123
-        run: ./gradlew :app:assembleRelease -x lintVitalRelease -x lintVitalAnalyzeRelease -x lintVitalReportRelease -x generateReleaseLintVitalReportModel --no-daemon --build-cache --configuration-cache --parallel
-
       - name: Upload release APK artifact
         uses: actions/upload-artifact@v7
         with:
@@ -126,17 +68,6 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           compression-level: 0  # APK 已压缩，跳过二次压缩提速
-
-  # ---- Job 4: Publish dev release (依赖 build-release 成功) ----
-  publish-dev:
-    needs: build-release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download APK artifact
-        uses: actions/download-artifact@v7
-        with:
-          name: app-release-apk
-          path: app/build/outputs/apk/release/
 
       - name: Delete previous dev release & tag
         env:
