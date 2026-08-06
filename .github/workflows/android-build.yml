@@ -59,6 +59,7 @@ jobs:
           name: lint-reports
           path: app/build/reports/lint-results-release.html
           if-no-files-found: ignore
+          retention-days: 1
 
       - name: Upload release APK artifact
         uses: actions/upload-artifact@v7
@@ -67,6 +68,7 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           compression-level: 0  # APK 已压缩，跳过二次压缩提速
+          retention-days: 1
 
       - name: Delete previous dev release & tag
         env:
