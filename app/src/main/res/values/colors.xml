@@ -1,0 +1,9 @@
+<resources>
+    <!-- Light window background (off-white). -->
+    <color name="window_white">#F7F7F9</color>
+    <color name="surface_white">#FFFFFFFF</color>
+    <color name="surface_variant_light">#E6E8EB</color>
+    <color name="accent_amber">#91C6FF</color>
+    <!-- Adaptive launcher icon background (average color of app icon art). -->
+    <color name="ic_launcher_background">#DAE4F2</color>
+</resources>

@@ -1,0 +1,295 @@
+package xa.refile.ui.settings
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import xa.refile.R
+import xa.refile.ui.theme.ErrorRed
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TmdbConfigScreen(
+    onBack: () -> Unit,
+    viewModel: SettingsViewModel = hiltViewModel(),
+) {
+    val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
+    val apiKeyValid by viewModel.apiKeyValid.collectAsStateWithLifecycle()
+    val language by viewModel.language.collectAsStateWithLifecycle()
+    val tmdbProxyUrl by viewModel.tmdbProxyUrl.collectAsStateWithLifecycle()
+    val cacheCleared by viewModel.cacheCleared.collectAsStateWithLifecycle()
+
+    var apiKeyInput by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(apiKey) {
+        if (apiKeyInput.isEmpty() && apiKey.isNotEmpty()) apiKeyInput = apiKey
+    }
+    // B17: 500ms debounce 持久化 API Key，避免每个按键都触发 DataStore 写入。
+    // apiKeyInput != apiKey 守卫防止初始回填（上方 LaunchedEffect）触发空写入或重复写入。
+    LaunchedEffect(apiKeyInput) {
+        if (apiKeyInput.isNotBlank() && apiKeyInput != apiKey) {
+            kotlinx.coroutines.delay(500)
+            viewModel.setApiKey(apiKeyInput)
+        }
+    }
+    var showApiKey by rememberSaveable { mutableStateOf(false) }
+
+    // 反代地址输入：初始回填已保存值，500ms debounce 持久化（与 API Key 同模式）。
+    var proxyUrlInput by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(tmdbProxyUrl) {
+        if (proxyUrlInput.isEmpty()) proxyUrlInput = tmdbProxyUrl
+    }
+    LaunchedEffect(proxyUrlInput) {
+        if (proxyUrlInput != tmdbProxyUrl) {
+            kotlinx.coroutines.delay(500)
+            viewModel.setTmdbProxyUrl(proxyUrlInput)
+        }
+    }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(cacheCleared) {
+        cacheCleared?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearCacheClearedResult()
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.tmdb_config_title)) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
+                    }
+                },
+            )
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            OutlinedTextField(
+                value = apiKeyInput,
+                onValueChange = {
+                    // B17: 旧实现每个字符都调 viewModel.setApiKey 触发一次异步 IO。
+                    // 改为只更新本地输入态，由下方 LaunchedEffect(apiKeyInput) 做 500ms
+                    // debounce 后再持久化，避免高频 DataStore 写入。
+                    apiKeyInput = it
+                },
+                label = { Text("API Key") },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Key, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                trailingIcon = {
+                    IconButton(onClick = { showApiKey = !showApiKey }) {
+                        Icon(
+                            if (showApiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (showApiKey) stringResource(R.string.tmdb_config_hide_key) else stringResource(R.string.tmdb_config_show_key),
+                        )
+                    }
+                },
+                visualTransformation = if (showApiKey) {
+                    VisualTransformation.None
+                } else {
+                    PasswordVisualTransformation()
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (apiKeyValid) Icons.Default.Check else Icons.Default.Close,
+                    contentDescription = null,
+                    tint = if (apiKeyValid) MaterialTheme.colorScheme.primary else ErrorRed,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = if (apiKeyValid) stringResource(R.string.tmdb_config_key_configured) else stringResource(R.string.tmdb_config_key_not_configured),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (apiKeyValid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Spacer(Modifier.size(4.dp))
+
+            LanguageDropdown(
+                selectedCode = language,
+                options = viewModel.availableLanguages,
+                onSelect = viewModel::setLanguage,
+            )
+
+            HorizontalDivider()
+
+            // 反代地址：绕过 DNS 污染。空串直连官方，填写后所有 TMDB 请求都走该反代。
+            Text(
+                text = stringResource(R.string.tmdb_config_proxy),
+                style = MaterialTheme.typography.labelLarge,
+            )
+            OutlinedTextField(
+                value = proxyUrlInput,
+                onValueChange = { proxyUrlInput = it },
+                label = { Text(stringResource(R.string.tmdb_config_proxy_label)) },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Link, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            // 反代说明：Cloudflare Workers Proxy 文字可点击，跳转 GitHub 仓库。
+            val hintPrefix = stringResource(R.string.tmdb_config_proxy_hint_prefix)
+            val hintLink = stringResource(R.string.tmdb_config_proxy_hint_link)
+            val hintSuffix = stringResource(R.string.tmdb_config_proxy_hint_suffix)
+            val linkColor = MaterialTheme.colorScheme.primary
+            Text(
+                text = buildAnnotatedString {
+                    append(hintPrefix)
+                    withLink(
+                        LinkAnnotation.Url("https://github.com/ymyuuu/Cloudflare-Workers-Proxy"),
+                    ) {
+                        withStyle(SpanStyle(color = linkColor)) {
+                            append(hintLink)
+                        }
+                    }
+                    append(hintSuffix)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // 免责说明：反代用于绕过 DNS 污染，仅作为网络可达性手段，使用风险与合规由用户自负。
+            Text(
+                text = stringResource(R.string.tmdb_config_proxy_disclaimer),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            HorizontalDivider()
+
+            // 清空 TMDB 缓存：清空详情数据库缓存（7 天 TTL）+ 会话搜索内存缓存。
+            OutlinedButton(
+                onClick = viewModel::clearTmdbCache,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Default.CleaningServices, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.tmdb_config_clear_cache))
+            }
+            Text(
+                text = stringResource(R.string.tmdb_config_clear_cache_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LanguageDropdown(
+    selectedCode: String,
+    options: List<Pair<String, String>>,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedLabel = options.firstOrNull { it.first == selectedCode }?.second
+        ?: options.firstOrNull()?.second
+        ?: selectedCode
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = stringResource(R.string.tmdb_config_language),
+            style = MaterialTheme.typography.labelLarge,
+        )
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = it },
+        ) {
+            OutlinedTextField(
+                value = selectedLabel,
+                onValueChange = {},
+                readOnly = true,
+                trailingIcon = {
+                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+            )
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+            ) {
+                options.forEach { (code, label) ->
+                    DropdownMenuItem(
+                        text = { Text(label) },
+                        onClick = {
+                            onSelect(code)
+                            expanded = false
+                        },
+                    )
+                }
+            }
+        }
+    }
+}

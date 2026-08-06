@@ -1,0 +1,68 @@
+refile — Open Source Notices
+=============================
+
+This product includes open source software. The corresponding license
+texts and (where applicable) upstream source are listed below.
+
+------------------------------------------------------------------------------
+1. dav4jvm  —  https://github.com/bitfireAT/dav4jvm
+   Version: 2.2.1
+   License: Mozilla Public License 2.0 (MPL-2.0)
+   Upstream source: https://github.com/bitfireAT/dav4jvm
+
+   dav4jvm is used by the WebDAV client module (core/.../webdav) for
+   PROPFIND/MOVE/MKCOL XML construction, MultiStatus parsing and
+   Basic/Digest authentication. It is shipped in compiled form inside
+   this APK.
+
+   MPL-2.0 §3.3 disclosure: the Source Code Form of dav4jvm is available
+   from the upstream repository above for at least six (6) months from
+   the date of distribution of this copy of the product.
+
+   MPL-2.0 full text: https://mozilla.org/MPL/2.0/
+------------------------------------------------------------------------------
+
+2. Kotlin Standard Library (org.jetbrains.kotlin)
+   License: Apache License 2.0
+   Upstream: https://kotlinlang.org/
+
+3. KotlinX Libraries (coroutines, serialization-json, datetime)
+   License: Apache License 2.0
+   Upstream: https://github.com/Kotlin/kotlinx.coroutines
+             https://github.com/Kotlin/kotlinx.serialization
+             https://github.com/Kotlin/kotlinx-datetime
+
+4. AndroidX Libraries
+   (core-ktx, activity-compose, lifecycle, navigation-compose,
+    datastore-preferences, work-runtime, room, security-crypto,
+    compose-ui, compose-material3, compose-foundation,
+    compose-material-icons-extended)
+   License: Apache License 2.0
+   Upstream: https://developer.android.com/jetpack/androidx
+
+5. OkHttp  —  https://github.com/square/okhttp
+   License: Apache License 2.0
+
+6. Retrofit  —  https://github.com/square/retrofit
+   License: Apache License 2.0
+
+7. retrofit2-kotlinx-serialization-converter
+   —  https://github.com/JakeWharton/retrofit2-kotlinx-serialization-converter
+   License: Apache License 2.0
+
+8. Coil  —  https://github.com/coil-kt/coil
+   License: Apache License 2.0
+
+9. Hilt / Dagger  —  https://github.com/google/dagger
+   License: Apache License 2.0
+
+10. Room  —  https://developer.android.com/jetpack/androidx/releases/room
+    License: Apache License 2.0
+
+All other third-party dependencies are distributed under their respective
+licenses (Apache-2.0 or compatible); their copyright notices and license
+texts ship as part of those libraries.
+
+This product uses the TMDB API but is not endorsed or certified by TMDB.
+Poster and backdrop images are sourced from TMDB; all rights remain with
+their respective copyright holders.

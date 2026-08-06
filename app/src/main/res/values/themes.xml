@@ -1,0 +1,15 @@
+<resources>
+    <!--
+      Base theme: no action bar + pure-white window background.
+      Compose Material 3 (RefileTheme) takes over the actual styling
+      at the content level; this XML theme only governs the launch window
+      and system bars before Compose mounts.
+    -->
+    <style name="Theme.Refile" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_white</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

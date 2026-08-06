@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AllowBackup is false (we ship our own JSON backup/restore); these rules are
+  present as empty stubs so the manifest references resolve cleanly.
+-->
+<full-backup-content />

@@ -1,0 +1,709 @@
+package xa.refile.ui.browser
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
+import xa.refile.R
+import xa.refile.core.webdav.MediaFileTypes
+import xa.refile.core.webdav.WebDavEntry
+import xa.refile.ui.common.EmptyState
+import xa.refile.ui.match.MatchViewModel
+import xa.refile.ui.theme.AccentAmber
+import java.time.ZoneId
+import java.time.OffsetDateTime
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+
+/** 目录图标用主强调色（蓝）。 */
+private val DirAccentColor = AccentAmber
+/** 匹配方式卡片强调色：自动=主色蓝 / 电影=靛蓝 / 剧集=青。 */
+private val MatchAutoColor = AccentAmber
+private val MatchMovieColor = Color(0xFF5C6BC0)
+private val MatchTvColor = Color(0xFF26A69A)
+
+/**
+ * WebDAV 文件浏览器（计划 §M1 SubTask 1.5）。
+ *
+ * - 顶部 TopAppBar：返回 + 可点击面包屑 + 刷新/排序菜单。
+ * - 列表：每行图标（目录/视频/字幕/其它）+ 名称 + 大小 + 修改日期；iso 仅显示并置灰。
+ * - 选择规则：所有类型都显示；「视频文件 + 目录」可选中，选中态由整行背景高亮标识（无复选框）；
+ *   字幕/nfo/图片/iso 置灰、不可选。非多选模式点击视频自动进入多选并选中，点击目录进入子目录。
+ * - 多选：长按或点击视频、长按目录进入；底栏显示计数 + 全选/反选 + 「匹配」。
+ *   下一步时递归展开选中目录为视频文件路径，再进入匹配流程（保持 匹配→预览→重命名 不变）。
+ * - 空目录居中提示；加载中转圈。
+ * - 系统返回键：多选先退出，否则逐级回退，根目录回退到上一屏。
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+fun BrowserScreen(
+    serverId: Long,
+    shouldRefresh: Boolean,
+    onRefreshConsumed: () -> Unit,
+    onBack: () -> Unit,
+    onProceedToPreview: (serverId: Long, selectedPaths: List<String>, matchType: MatchViewModel.MatchType) -> Unit,
+    viewModel: BrowserViewModel = hiltViewModel(),
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    var showSortMenu by remember { mutableStateOf(false) }
+    /** 「匹配」按钮上方 3 选 1 浮层（自动/电影/剧集）展开状态。
+     *  点击「匹配」按钮先弹出此浮层，用户选定类型后再递归展开目录并跳转预览页。 */
+    var showMatchTypePicker by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(serverId) { viewModel.init(serverId) }
+
+    // 重命名完成后从进度页返回时触发刷新，展示最新文件列表。
+    LaunchedEffect(shouldRefresh) {
+        if (shouldRefresh) {
+            viewModel.refresh()
+            onRefreshConsumed()
+        }
+    }
+
+    // 目录加载失败时通过 snackbar 反馈（currentPath 不变，面包屑不会叠加）。
+    LaunchedEffect(state.error) {
+        state.error?.let { error ->
+            snackbarHostState.showSnackbar(error)
+            viewModel.clearError()
+        }
+    }
+
+    BackHandler {
+        if (state.multiSelectMode) viewModel.exitMultiSelect()
+        else if (!viewModel.goUp()) onBack()
+    }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            TopAppBar(
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                },
+                title = {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        breadcrumbs(state.currentPath, state.rootPath).forEachIndexed { index, (label, path) ->
+                            if (index > 0) {
+                                Text(
+                                    text = "/",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                    modifier = Modifier.padding(horizontal = 0.dp),
+                                )
+                            }
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable { viewModel.navigateTo(path) }
+                                    .padding(horizontal = 2.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { viewModel.refresh() }) {
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = stringResource(R.string.browser_refresh),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                    IconButton(onClick = { showSortMenu = true }) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.Sort,
+                            contentDescription = stringResource(R.string.browser_sort),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showSortMenu,
+                        onDismissRequest = { showSortMenu = false },
+                    ) {
+                        val sf = state.sortField
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    stringResource(R.string.browser_sort_by_name) +
+                                        if (sf == BrowserViewModel.SortField.NAME) " ✓" else "",
+                                )
+                            },
+                            onClick = {
+                                viewModel.toggleSort(BrowserViewModel.SortField.NAME)
+                                showSortMenu = false
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    stringResource(R.string.browser_sort_by_size) +
+                                        if (sf == BrowserViewModel.SortField.SIZE) " ✓" else "",
+                                )
+                            },
+                            onClick = {
+                                viewModel.toggleSort(BrowserViewModel.SortField.SIZE)
+                                showSortMenu = false
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    stringResource(R.string.browser_sort_by_time) +
+                                        if (sf == BrowserViewModel.SortField.TIME) " ✓" else "",
+                                )
+                            },
+                            onClick = {
+                                viewModel.toggleSort(BrowserViewModel.SortField.TIME)
+                                showSortMenu = false
+                            },
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    stringResource(
+                                        if (state.sortAsc) {
+                                            R.string.browser_sort_desc
+                                        } else {
+                                            R.string.browser_sort_asc
+                                        },
+                                    ),
+                                )
+                            },
+                            onClick = {
+                                viewModel.toggleSortOrder()
+                                showSortMenu = false
+                            },
+                        )
+                    }
+                },
+            )
+        },
+        bottomBar = {
+            if (state.multiSelectMode) {
+                MultiSelectBottomBar(
+                    selectedCount = state.selectedPaths.size,
+                    expanding = state.expanding,
+                    onSelectAll = { viewModel.selectAll() },
+                    onInvert = { viewModel.invertSelection() },
+                    onExit = { viewModel.exitMultiSelect() },
+                    // 点击「匹配」先弹出底部 sheet 选择匹配类型（自动/电影/剧集）
+                    onProceed = { showMatchTypePicker = true },
+                )
+            }
+        },
+    ) { padding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+        ) {
+            when {
+                state.loading && state.entries.isEmpty() && state.error == null -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                }
+                state.error != null && state.entries.isEmpty() -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = state.error!!,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Button(onClick = { viewModel.refresh() }) {
+                                Text(stringResource(R.string.common_retry))
+                            }
+                        }
+                    }
+                }
+                state.entries.isEmpty() -> {
+                    // Task 5.5：空目录友好空状态。
+                    EmptyState(
+                        icon = Icons.Default.Folder,
+                        title = stringResource(R.string.browser_empty_folder_title),
+                        subtitle = stringResource(R.string.browser_empty_folder_subtitle),
+                    )
+                }
+                else -> {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(state.entries, key = { it.href }) { entry ->
+                            val name = entry.displayName ?: nameFromHref(entry.href)
+                            val fullPath = joinPath(state.currentPath, name)
+                            BrowserEntryRow(
+                                modifier = Modifier.animateItem(),
+                                entry = entry,
+                                name = name,
+                                multiSelectMode = state.multiSelectMode,
+                                isSelected = fullPath in state.selectedPaths,
+                                onClick = {
+                                    if (state.multiSelectMode) {
+                                        // 多选模式：目录和视频都 toggle 选中。
+                                        viewModel.toggleSelected(fullPath, entry.isCollection)
+                                    } else if (entry.isCollection) {
+                                        // 文件夹：进入子目录，不选中。
+                                        viewModel.navigateInto(entry)
+                                    } else if (MediaFileTypes.isSelectableVideo(name)) {
+                                        // 视频文件：点击自动进入多选模式并选中该项。
+                                        viewModel.enterMultiSelect(fullPath, entry.isCollection)
+                                    }
+                                },
+                                onLongClick = {
+                                    if (!state.multiSelectMode &&
+                                        (entry.isCollection || MediaFileTypes.isSelectableVideo(name))
+                                    ) {
+                                        viewModel.enterMultiSelect(fullPath, entry.isCollection)
+                                    }
+                                },
+                            )
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        }
+                    }
+                }
+            }
+            // 底部 sheet 选择匹配方式（自动/电影/剧集）
+            // 选中类型后递归展开选中目录为视频文件并跳转预览页（预览页内启动匹配）
+            if (showMatchTypePicker) {
+                MatchTypePickerSheet(
+                    expanding = state.expanding,
+                    onSelect = { type ->
+                        showMatchTypePicker = false
+                        scope.launch {
+                            val files = try {
+                                viewModel.expandSelectionToFiles()
+                            } catch (e: Exception) {
+                                snackbarHostState.showSnackbar("目录展开失败：${e.message ?: "未知错误"}")
+                                return@launch
+                            }
+                            if (files.isEmpty()) {
+                                snackbarHostState.showSnackbar("所选目录中未找到可匹配的视频文件")
+                                return@launch
+                            }
+                            onProceedToPreview(serverId, files, type)
+                        }
+                    },
+                    onDismiss = { showMatchTypePicker = false },
+                )
+            }
+        }
+    }
+}
+
+/** 多选模式底部栏：退出 + 已选计数 + 全选/反选 + 匹配（仅当选中>0）。
+ * [expanding] 为 true 时表示正在递归展开目录为视频文件，按钮禁用并显示「展开中...」。 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MultiSelectBottomBar(
+    selectedCount: Int,
+    expanding: Boolean,
+    onSelectAll: () -> Unit,
+    onInvert: () -> Unit,
+    onExit: () -> Unit,
+    onProceed: () -> Unit,
+) {
+    BottomAppBar {
+        IconButton(onClick = onExit) {
+            Icon(
+                Icons.Default.Close,
+                contentDescription = stringResource(R.string.browser_exit_multi_select),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Text(
+            text = stringResource(R.string.browser_selected_count, selectedCount),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.weight(1f))
+        TextButton(onClick = onSelectAll) {
+            Text(stringResource(R.string.browser_select_all))
+        }
+        TextButton(onClick = onInvert) {
+            Text(stringResource(R.string.browser_invert_selection))
+        }
+        if (selectedCount > 0) {
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = onProceed, enabled = !expanding) {
+                Text(
+                    stringResource(
+                        if (expanding) R.string.browser_expanding else R.string.browser_match,
+                    ),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 匹配方式选择底部 sheet：自动 / 电影 / 剧集。
+ *
+ * 用户在文件选择页点击「匹配」按钮后弹出此 sheet，选定匹配类型后才递归展开目录并跳转预览页
+ * （匹配过程在预览页顶部进度条内执行）。展开期间 [expanding] 为 true 时禁用所有选项并显示进度。
+ *
+ * 设计：底部 sheet + 大图标卡片，每个选项一张卡，水平排列，
+ * 图标置于着色圆形背景内，配标题与一行说明，圆角浮起带阴影，文字精简强对比。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MatchTypePickerSheet(
+    expanding: Boolean,
+    onSelect: (MatchViewModel.MatchType) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            // 标题区：大标题 + 副标题，强对比层级
+            Text(
+                text = stringResource(R.string.browser_select_match_type),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = stringResource(R.string.browser_select_match_type_subtitle),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(4.dp))
+
+            // 3 张大图标卡片，水平等分排列
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                MatchTypeCard(
+                    icon = Icons.Default.AutoAwesome,
+                    title = stringResource(R.string.match_type_auto),
+                    description = stringResource(R.string.match_type_auto_desc),
+                    accent = MatchAutoColor,
+                    enabled = !expanding,
+                    onClick = { onSelect(MatchViewModel.MatchType.AUTO) },
+                    modifier = Modifier.weight(1f),
+                )
+                MatchTypeCard(
+                    icon = Icons.Default.Movie,
+                    title = stringResource(R.string.match_type_movie),
+                    description = stringResource(R.string.match_type_movie_desc),
+                    accent = MatchMovieColor,
+                    enabled = !expanding,
+                    onClick = { onSelect(MatchViewModel.MatchType.MOVIE) },
+                    modifier = Modifier.weight(1f),
+                )
+                MatchTypeCard(
+                    icon = Icons.Default.Tv,
+                    title = stringResource(R.string.match_type_tv),
+                    description = stringResource(R.string.match_type_tv_desc),
+                    accent = MatchTvColor,
+                    enabled = !expanding,
+                    onClick = { onSelect(MatchViewModel.MatchType.TV) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            // 展开中：显示进度条与说明，禁用所有选项
+            if (expanding) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Text(
+                    text = stringResource(R.string.browser_expanding_dir),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 匹配方式卡片：大图标置于着色圆形背景内，下方标题 + 一行说明，
+ * 圆角浮起带阴影，整卡可点击。
+ */
+@Composable
+private fun MatchTypeCard(
+    icon: ImageVector,
+    title: String,
+    description: String,
+    accent: Color,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 2.dp,
+        tonalElevation = 1.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 16.dp, horizontal = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            // 着色圆形图标背景，强对比
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(accent.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(30.dp),
+                )
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/** 单条浏览器项。 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun BrowserEntryRow(
+    entry: WebDavEntry,
+    name: String,
+    multiSelectMode: Boolean,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val isSelectableVideo = MediaFileTypes.isSelectableVideo(name)
+    val isVideo = MediaFileTypes.isVideo(name)
+    val isSubtitle = MediaFileTypes.isSubtitle(name)
+    val isDisplayOnly = MediaFileTypes.isDisplayOnly(name)
+
+    val icon = when {
+        entry.isCollection -> Icons.Default.Folder
+        isVideo -> Icons.Default.Movie
+        isSubtitle -> Icons.Default.Subtitles
+        else -> Icons.AutoMirrored.Filled.InsertDriveFile
+    }
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val iconTint = when {
+        // 多选模式下也保留主题色：文件夹与可选视频保持强调色，
+        // 仅不可选的「其他文件/字幕/iso」置灰，与名称颜色一致。
+        entry.isCollection -> DirAccentColor
+        isSelectableVideo -> DirAccentColor
+        multiSelectMode -> onSurfaceVariant
+        isDisplayOnly -> onSurfaceVariant
+        else -> onSurface
+    }
+    val nameColor = when {
+        multiSelectMode && !isSelectableVideo && !entry.isCollection -> onSurfaceVariant
+        isDisplayOnly -> onSurfaceVariant
+        else -> onSurface
+    }
+    // 多选选中行加 primaryContainer 高亮（无复选框，靠背景色标识选中态）。
+    val rowBackground = if (isSelected && multiSelectMode) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+    } else {
+        Color.Transparent
+    }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(rowBackground)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // 左侧固定 48dp 图标区：始终显示图标，选中态由整行背景高亮标识。
+        // 固定宽度，避免进入/退出多选时整行内容横向位移。
+        Box(
+            modifier = Modifier.size(48.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(28.dp),
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyLarge,
+                color = nameColor,
+                fontWeight = if (isSelectableVideo) FontWeight.Medium else FontWeight.Normal,
+                // 测试反馈 Item 6：文件名太长时换行完整显示，不截断
+            )
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = formatSize(entry.contentLength),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = onSurfaceVariant,
+                )
+                entry.lastModified?.let { lm ->
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = formatDate(lm),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 人性化字节大小，如 `1.2 GB`。null 或目录返回 `—`。 */
+private fun formatSize(bytes: Long?): String {
+    if (bytes == null || bytes < 0) return "—"
+    if (bytes < 1024L) return "$bytes B"
+    val units = arrayOf("KB", "MB", "GB", "TB")
+    var value = bytes.toDouble() / 1024.0
+    var idx = 0
+    while (value >= 1024.0 && idx < units.size - 1) {
+        value /= 1024.0
+        idx++
+    }
+    return "%.1f %s".format(value, units[idx])
+}
+
+/**
+ * 统一日期格式化为 `YYYY-MM-DD, hh:mm`（本地时区）。
+ *
+ * 兼容两种服务器时间格式：
+ * - WebDAV RFC1123：`Wed, 29 Jul 2026 12:34:56 GMT`
+ * - OpenList ISO 8601：`2026-06-24T03:46:57.5612478Z`
+ *
+ * 解析失败时回退到原始字符串首段，避免显示空白。
+ */
+private fun formatDate(raw: String?): String {
+    if (raw.isNullOrBlank()) return "—"
+    val pattern = DateTimeFormatter.ofPattern("yyyy-MM-dd, HH:mm")
+    val zone = ZoneId.systemDefault()
+    // 先尝试 ISO 8601（OpenList）
+    runCatching {
+        return OffsetDateTime.parse(raw, DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+            .atZoneSameInstant(zone)
+            .format(pattern)
+    }
+    // 再尝试 RFC1123（WebDAV）
+    runCatching {
+        return ZonedDateTime.parse(raw, DateTimeFormatter.RFC_1123_DATE_TIME)
+            .withZoneSameInstant(zone)
+            .format(pattern)
+    }
+    // 回退
+    return raw.substringBefore(" ")
+}

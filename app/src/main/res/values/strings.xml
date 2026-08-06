@@ -1,0 +1,264 @@
+<resources>
+    <string name="app_name">refile</string>
+
+    <!-- 通用按钮/操作（跨页面复用） -->
+    <string name="common_cancel">取消</string>
+    <string name="common_confirm">确定</string>
+    <string name="common_delete">删除</string>
+    <string name="common_edit">编辑</string>
+    <string name="common_save">保存</string>
+    <string name="common_retry">重试</string>
+    <string name="common_close">关闭</string>
+    <string name="common_back">返回</string>
+    <string name="common_loading">加载中…</string>
+    <string name="common_settings">设置</string>
+    <string name="common_history">历史记录</string>
+    <string name="common_saving">保存中...</string>
+    <string name="common_season_all">全部季</string>
+    <string name="common_season_n">第 %1$d 季</string>
+    <string name="common_season_label">季</string>
+
+    <!-- 服务器列表页 -->
+    <string name="server_list_add_server">添加服务器</string>
+    <string name="server_list_empty">还没有服务器，点击右上角添加</string>
+    <string name="server_list_delete_title">删除服务器</string>
+    <string name="server_list_delete_confirm">确定删除该服务器配置吗？此操作不可撤销。</string>
+
+    <!-- 服务器编辑页 -->
+    <string name="server_edit_title_edit">编辑服务器</string>
+    <string name="server_edit_title_add">添加服务器</string>
+    <string name="server_edit_alias">别名</string>
+    <string name="server_edit_url_label">完整 URL（如 https://dav.example.com:8443/dav）</string>
+    <string name="server_edit_url_supporting">包含协议、主机、端口与路径；不再单独配置端口/根路径</string>
+    <string name="server_edit_username">用户名（必填，不支持匿名访问）</string>
+    <string name="server_edit_password_edit">密码（留空保留原密码）</string>
+    <string name="server_edit_password">密码</string>
+    <string name="server_edit_hide_password">隐藏密码</string>
+    <string name="server_edit_show_password">显示密码</string>
+    <string name="server_edit_type">服务器类型</string>
+    <string name="server_edit_testing">测试中...</string>
+    <string name="server_edit_test_connection">测试连接</string>
+    <string name="server_edit_save_failed">保存失败</string>
+
+    <!-- 文件浏览器页 -->
+    <string name="browser_refresh">刷新</string>
+    <string name="browser_sort">排序</string>
+    <string name="browser_sort_by_name">按名称</string>
+    <string name="browser_sort_by_size">按大小</string>
+    <string name="browser_sort_by_time">按时间</string>
+    <string name="browser_sort_desc">切换为降序</string>
+    <string name="browser_sort_asc">切换为升序</string>
+    <string name="browser_empty_folder_title">空文件夹</string>
+    <string name="browser_empty_folder_subtitle">此目录没有文件</string>
+    <string name="browser_exit_multi_select">退出多选</string>
+    <string name="browser_selected_count">已选 %1$d</string>
+    <string name="browser_select_all">全选</string>
+    <string name="browser_invert_selection">反选</string>
+    <string name="browser_expanding">展开中…</string>
+    <string name="browser_match">匹配</string>
+    <string name="browser_select_match_type">选择匹配方式</string>
+    <string name="browser_select_match_type_subtitle">选定后开始识别并整理所选文件</string>
+    <string name="browser_expanding_dir">正在展开目录…</string>
+
+    <!-- 匹配方式 -->
+    <string name="match_type_auto">自动</string>
+    <string name="match_type_auto_desc">智能识别类型</string>
+    <string name="match_type_movie">电影</string>
+    <string name="match_type_movie_desc">单部电影文件</string>
+    <string name="match_type_tv">剧集</string>
+    <string name="match_type_tv_desc">电视剧与番剧</string>
+
+    <!-- 预览页 -->
+    <string name="preview_title">预览</string>
+    <string name="preview_batch_match_edit">批量匹配编辑</string>
+    <string name="preview_empty_title">无可预览的匹配项</string>
+    <string name="preview_empty_subtitle">请返回文件选择页选择文件后再来预览</string>
+    <string name="preview_filter_empty_title">当前筛选下无项目</string>
+    <string name="preview_filter_empty_subtitle">点击顶部统计切换筛选</string>
+    <string name="preview_resolve_conflicts">一键解决冲突（%1$d）</string>
+    <string name="preview_matching">正在匹配</string>
+    <string name="preview_progress_ratio">%1$d / %2$d</string>
+    <string name="preview_preparing">准备匹配…</string>
+    <string name="preview_filter_all">全部 %1$d</string>
+    <string name="preview_filter_unmatched">未匹配 %1$d</string>
+    <string name="preview_filter_conflict">冲突 %1$d</string>
+    <string name="preview_execute">执行（%1$d）</string>
+    <string name="preview_pending_hint">待确认 · 点击选择候选</string>
+    <string name="preview_collapse">收起</string>
+    <string name="preview_select_candidate">选择候选</string>
+    <string name="preview_candidates">候选（%1$d）</string>
+    <string name="preview_companions">伴随文件（%1$d）</string>
+    <string name="preview_collapse_companions">收起伴随文件</string>
+    <string name="preview_expand_companions">展开伴随文件</string>
+
+    <!-- 历史记录页 -->
+    <string name="history_batch_detail">批次详情</string>
+    <string name="history_revert_batch">撤销整批</string>
+    <string name="history_revert_confirm_text">将按反向顺序把目标路径移回原路径。中途失败会继续尝试剩余，并在完成后提示「已回滚 N/M 条」。确定撤销？</string>
+    <string name="history_revert">撤销</string>
+    <string name="history_empty_title">暂无历史</string>
+    <string name="history_empty_subtitle">重命名后会在此显示</string>
+    <string name="history_server_name">服务器：%1$s</string>
+    <string name="history_stat_success">成功</string>
+    <string name="history_stat_failed">失败</string>
+    <string name="history_stat_total">总计</string>
+    <string name="history_reverted">已撤销</string>
+    <string name="history_entries_count">条目 (%1$d)</string>
+    <string name="history_time">时间：%1$s</string>
+    <string name="history_reverted_at">撤销于：%1$s</string>
+    <string name="history_arrow_target">→ %1$s</string>
+    <string name="history_reverting">撤销中 %1$d / %2$d</string>
+
+    <!-- 设置页 -->
+    <string name="settings_section_tmdb">TMDB 配置</string>
+    <string name="settings_tmdb_config">TMDB 配置</string>
+    <string name="settings_tmdb_config_subtitle">API Key 与语言偏好</string>
+    <string name="settings_section_naming">命名与模板</string>
+    <string name="settings_template_editor">模板编辑器</string>
+    <string name="settings_template_editor_subtitle">补零位数与变量插值</string>
+    <string name="settings_section_file">文件</string>
+    <string name="settings_file_settings_subtitle">冲突处理策略、回收站、并发线程数</string>
+    <string name="settings_conflict_strategy">冲突处理策略</string>
+    <string name="settings_conflict_skip">跳过冲突文件</string>
+    <string name="settings_conflict_fail">失败（不覆盖）</string>
+    <string name="settings_conflict_index">自动加序号</string>
+    <string name="settings_conflict_overwrite">覆盖目标</string>
+    <string name="settings_conflict_skip_desc">目标已存在则跳过该文件，继续后续</string>
+    <string name="settings_conflict_fail_desc">不覆盖；目标已存在时 MOVE 失败并记录，继续后续</string>
+    <string name="settings_conflict_index_desc">目标已存在时自动加序号 (1)、(2)…</string>
+    <string name="settings_conflict_overwrite_desc">直接覆盖目标文件</string>
+    <string name="settings_enable_trash">启用回收站</string>
+    <string name="settings_trash_enabled_subtitle">删除/覆盖前移动到回收站目录</string>
+    <string name="settings_trash_disabled_subtitle">已关闭（不执行回收备份）</string>
+    <string name="settings_trash_dir">回收站目录</string>
+    <string name="settings_trash_closed">已关闭</string>
+    <string name="settings_trash_unconfigured">未配置（物理删除）</string>
+    <string name="settings_trash_dir_desc">删除/覆盖前把文件移动到该目录而非物理删除。留空表示不启用回收站。</string>
+    <string name="settings_concurrency">并发线程数</string>
+    <string name="settings_concurrency_subtitle">批量重命名/匹配/撤销的单服务器并发请求数</string>
+    <string name="settings_concurrency_value">%1$d 线程</string>
+    <string name="settings_concurrency_range">范围 1–10，默认 5。过高可能触发服务器限流。</string>
+    <string name="settings_section_data">数据管理</string>
+    <string name="settings_backup">备份与恢复</string>
+    <string name="settings_backup_subtitle">导出/导入设置与服务器</string>
+    <string name="settings_section_about">关于</string>
+    <string name="settings_version">版本 %1$s</string>
+    <string name="settings_tmdb_image_notice">海报与背景图来自 TMDB，版权归原版权方所有。</string>
+    <string name="settings_open_source_license">开源许可（含 dav4jvm — MPL-2.0）</string>
+    <string name="settings_open_source_title">开源许可</string>
+
+    <!-- 模板编辑器页 -->
+    <string name="template_editor_title">模板编辑器</string>
+    <string name="template_editor_saved">已保存</string>
+    <string name="template_editor_save_failed_prefix">保存失败：</string>
+    <string name="template_editor_unknown_error">未知错误</string>
+    <string name="template_editor_tab_movie">电影模板</string>
+    <string name="template_editor_tab_episode">剧集模板</string>
+    <string name="template_editor_template_label">%1$s字符串</string>
+    <string name="template_editor_supporting_text">变量用 {n} {y} {s00e00} 等，管道 {n|upper} 或链式 {n.upper()}，路径用 / 分段，日期 {d|format(\'yyyy.MM.dd\')}</string>
+    <string name="template_editor_reset_default">重置为默认规则</string>
+    <string name="template_editor_reset_confirm_title">重置模板</string>
+    <string name="template_editor_reset_confirm_msg">确定要将当前模板重置为默认规则吗？此操作不可撤销。</string>
+    <string name="template_editor_insert_variable">插入变量</string>
+    <string name="template_editor_live_preview">实时预览</string>
+    <string name="template_editor_movie_example">电影示例</string>
+    <string name="template_editor_episode_example">剧集示例</string>
+    <string name="template_editor_empty">（空）</string>
+
+    <!-- TMDB 配置页 -->
+    <string name="tmdb_config_title">TMDB 配置</string>
+    <string name="tmdb_config_hide_key">隐藏 Key</string>
+    <string name="tmdb_config_show_key">显示 Key</string>
+    <string name="tmdb_config_key_configured">Key 已配置</string>
+    <string name="tmdb_config_key_not_configured">未配置</string>
+    <string name="tmdb_config_language">语言偏好</string>
+    <string name="tmdb_config_proxy">反代地址</string>
+    <string name="tmdb_config_proxy_label">Cloudflare Workers 地址</string>
+    <string name="tmdb_config_proxy_hint_prefix">留空则直连官方 api.themoviedb.org / image.tmdb.org。使用 </string>
+    <string name="tmdb_config_proxy_hint_link">Cloudflare Workers Proxy</string>
+    <string name="tmdb_config_proxy_hint_suffix"> 反代</string>
+    <string name="tmdb_config_proxy_disclaimer">免责声明：本反代功能仅用于在网络受 DNS 污染时恢复对 TMDB 官方 API 的可达性，不提供任何内容加速、解锁或翻墙能力，也不代表本应用对反代服务的安全性、隐私政策或可用性作出任何担保。请自行部署或选择可信的反代服务，因使用第三方反代导致的 API Key 泄露、数据被截留、服务异常或合规风险，由用户自行承担。使用前请确认其符合您所在地区的法律法规及 TMDB 服务条款。</string>
+    <string name="tmdb_config_clear_cache">清空 TMDB 缓存</string>
+    <string name="tmdb_config_clear_cache_desc">清除已缓存的 TMDB 详情与搜索结果，下次匹配重新走网络。</string>
+
+    <!-- 备份与恢复页 -->
+    <string name="backup_title">备份与恢复</string>
+    <string name="backup_export_title">导出备份</string>
+    <string name="backup_export_desc">将服务器、设置与模板导出为 JSON。历史与缓存不纳入备份。</string>
+    <string name="backup_passphrase">口令（可选）</string>
+    <string name="backup_hide_passphrase">隐藏口令</string>
+    <string name="backup_show_passphrase">显示口令</string>
+    <string name="backup_include_passwords">包含服务器密码</string>
+    <string name="backup_no_passphrase_warning">未设置口令将导出明文备份，且不含服务器密码。</string>
+    <string name="backup_exporting">导出中…</string>
+    <string name="backup_export">导出</string>
+    <string name="backup_import_title">导入备份</string>
+    <string name="backup_import_desc">选择备份文件后解析变更预览，确认无误再落库。导入失败不破坏现有配置。</string>
+    <string name="backup_parsing">解析中…</string>
+    <string name="backup_select_file">选择备份文件</string>
+    <string name="backup_import_preview">导入预览</string>
+    <string name="backup_new_servers">新增服务器</string>
+    <string name="backup_overwritten_servers">覆盖服务器</string>
+    <string name="backup_removed_servers">删除服务器</string>
+    <string name="backup_will_change">将变更</string>
+    <string name="backup_no_change">无变化</string>
+    <string name="backup_apply_import">应用导入</string>
+
+    <!-- 剧集面板 -->
+    <string name="episodes_empty">暂无集数据，请先选择剧集与季</string>
+
+    <!-- 批量匹配页 -->
+    <string name="batch_match_title">批量匹配 · %1$d</string>
+    <string name="batch_match_apply">应用</string>
+    <string name="batch_match_wait_episodes">请等待集列表加载…</string>
+    <string name="batch_match_discard_title">放弃修改？</string>
+    <string name="batch_match_discard_text">当前有未应用的修改，确认放弃并返回？</string>
+    <string name="batch_match_discard">放弃</string>
+    <string name="batch_match_continue_edit">继续编辑</string>
+    <string name="batch_match_apply_title">应用批量修改</string>
+    <string name="batch_match_clear_bindings_title">清空全部绑定？</string>
+    <string name="batch_match_clear_bindings_text">此操作将清空当前所有集位绑定，确定继续？</string>
+    <string name="batch_match_clear">清空</string>
+    <string name="batch_match_search_hint">搜索剧集标题</string>
+    <string name="batch_match_search_results">搜索结果 (%1$d)</string>
+    <string name="batch_match_duplicate_slots">重复槽位：%1$s</string>
+    <string name="batch_match_unsaved_changes">有未应用的修改</string>
+    <string name="batch_match_empty_slot">（空槽，点击选择文件绑定）</string>
+    <string name="batch_match_unbound">未绑定（%1$d）</string>
+    <string name="batch_match_all_bound">所有文件已绑定</string>
+    <string name="batch_match_select_slot">选择槽位绑定</string>
+    <string name="batch_match_unbind">解绑</string>
+    <string name="batch_match_select_file">选择文件 → %1$s</string>
+    <string name="batch_match_current">当前：%1$s</string>
+    <string name="batch_match_unbind_current">解绑当前文件</string>
+    <string name="batch_match_unbound_files">未绑定文件</string>
+    <string name="batch_match_bound_files">已绑定文件（点击交换）</string>
+    <string name="batch_match_smart">智能</string>
+    <string name="batch_match_sequential">顺序</string>
+
+    <!-- 单条匹配编辑页 -->
+    <string name="edit_match_title">匹配</string>
+    <string name="edit_match_no_entry">无可编辑条目（索引 %1$d 越界）</string>
+    <string name="edit_match_search_hint">搜索电影或剧集</string>
+    <string name="edit_match_search_results">搜索结果 (%1$d)</string>
+
+    <!-- 执行进度页 -->
+    <string name="progress_done">重命名完成</string>
+    <string name="progress_in_progress">重命名进行中</string>
+    <string name="progress_preparing">正在准备…</string>
+    <string name="progress_ratio">%1$d / %2$d</string>
+    <string name="progress_all_success">全部重命名成功</string>
+    <string name="progress_partial_failure">部分重命名失败</string>
+    <string name="progress_all_failure">全部重命名失败</string>
+    <string name="progress_cancelled">任务已取消</string>
+    <string name="progress_error">任务执行出错</string>
+    <string name="progress_failed_items">失败项</string>
+    <string name="progress_stat_success">成功</string>
+    <string name="progress_stat_failed">失败</string>
+    <string name="progress_stat_skipped">跳过</string>
+    <string name="progress_skipped_items">跳过项 (%1$d)</string>
+    <string name="progress_collapse">收起</string>
+    <string name="progress_expand">展开</string>
+    <string name="progress_retry_failed">重试失败项</string>
+    <string name="progress_back_home">返回首页</string>
+</resources>
