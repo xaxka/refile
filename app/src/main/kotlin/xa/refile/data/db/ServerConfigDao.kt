@@ -18,6 +18,10 @@ interface ServerConfigDao {
     @Query("SELECT * FROM server_configs ORDER BY updatedAt DESC")
     fun observeAll(): Flow<List<ServerConfigEntity>>
 
+    /** 一次性查询全部（供事务内使用：Room 的 withTransaction 中收集 Flow 有死锁风险）。 */
+    @Query("SELECT * FROM server_configs ORDER BY updatedAt DESC")
+    suspend fun getAll(): List<ServerConfigEntity>
+
     @Query("SELECT * FROM server_configs WHERE id = :id")
     suspend fun getById(id: Long): ServerConfigEntity?
 

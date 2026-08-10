@@ -44,6 +44,9 @@ class ServerRepository @Inject constructor(
     /** 观察所有服务器配置（按 updatedAt 倒序）。 */
     fun observeServers(): Flow<List<ServerConfigEntity>> = dao.observeAll()
 
+    /** 一次性查询全部服务器配置（事务内使用；withTransaction 中收集 Flow 会持写锁等读锁，有死锁/ANR 风险）。 */
+    suspend fun getAllServers(): List<ServerConfigEntity> = dao.getAll()
+
     /** 按 id 取单条配置。 */
     suspend fun getServer(id: Long): ServerConfigEntity? = dao.getById(id)
 

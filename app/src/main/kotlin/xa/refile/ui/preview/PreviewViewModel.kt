@@ -791,7 +791,9 @@ class PreviewViewModel @Inject constructor(
             _uiState.update { it.copy(error = "存在 ${state.conflictCount} 个冲突，请先解决") }
             return null
         }
-        val items = state.activeItems.filter { it.status == PreviewStatus.AUTO }
+        // B31：执行列表基于未过滤的 previewItems，与 UI executableCount 统计口径一致。
+        // activeItems 受顶部过滤器影响——切到「未匹配/冲突」过滤器时会误报「无可执行的重命名项」。
+        val items = state.previewItems.filter { it.status == PreviewStatus.AUTO }
         if (items.isEmpty()) {
             _uiState.update { it.copy(error = "无可执行的重命名项") }
             return null

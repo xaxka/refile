@@ -148,7 +148,9 @@ class BackupRepository @Inject constructor(
     suspend fun applyImport(payload: BackupPayload): ApplyResult = try {
         // 1) servers 全量替换：先删全部现有，再逐条插入（事务包裹，中途失败回滚避免丢数据）
         db.withTransaction {
-            val existing = serverRepository.observeServers().first()
+            // 事务内必须用一次性 suspend 查询而非 Flow 收集（observeServers().first()）：
+            // Room 的 withTransaction 持写锁，Flow 查询等待读锁，可能死锁/ANR。
+            val existing = serverRepository.getAllServers()
             existing.forEach { serverRepository.deleteServer(it.id) }
             payload.servers.forEach { snap ->
                 serverRepository.addServer(
