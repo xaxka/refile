@@ -228,6 +228,53 @@ class BatchMatchViewModelTest {
         assertThat(vm.uiState.value.bindings["/s01e02.mkv"]).isEqualTo(BatchMatchViewModel.SlotKey(1, 2))
     }
 
+    /** 修复「点击智能没反应」：已绑定（错误绑定）的文件也按解析集号重绑，而非仅填空槽。 */
+    @Test
+    fun `smartAssignFromParsed rebinds misbound files to parsed episode`() = runTest(testDispatcher) {
+        val vm = newViewModelWithEpisodeFiles(episodeCount = 15)
+        // 模拟错误绑定（顺序错位 / 误拖）：E12 文件绑到 E01 槽
+        vm.setBinding("/s01e12.mkv", BatchMatchViewModel.SlotKey(1, 1))
+        assertThat(vm.uiState.value.bindings["/s01e12.mkv"]).isEqualTo(BatchMatchViewModel.SlotKey(1, 1))
+
+        vm.smartAssignFromParsed()
+
+        // 重绑定语义：按解析集号纠正回 (1,12)，E13 保持 (1,13)，不再是空操作
+        assertThat(vm.uiState.value.bindings["/s01e12.mkv"]).isEqualTo(BatchMatchViewModel.SlotKey(1, 12))
+        assertThat(vm.uiState.value.bindings["/s01e13.mkv"]).isEqualTo(BatchMatchViewModel.SlotKey(1, 13))
+    }
+
+    /** 修复「顺序填充集数错位」：批次文件从 E12 起时，顺序填充从 E12 槽锚定而非 E01。 */
+    @Test
+    fun `fillSequential anchors at first file parsed episode`() = runTest(testDispatcher) {
+        val vm = newViewModelWithEpisodeFiles(episodeCount = 15)
+        vm.unbindAll()
+        assertThat(vm.uiState.value.bindings).isEmpty()
+
+        vm.fillSequential()
+
+        val bindings = vm.uiState.value.bindings
+        // E12/E13 文件从 E12 槽起顺序填，而非从 E01 槽产生 +11 偏移
+        assertThat(bindings["/s01e12.mkv"]).isEqualTo(BatchMatchViewModel.SlotKey(1, 12))
+        assertThat(bindings["/s01e13.mkv"]).isEqualTo(BatchMatchViewModel.SlotKey(1, 13))
+    }
+
+    /** 「全部季」模式下无季号文件（如 `家业.第12集`）：按集号跨季查找槽位（取最早季）。 */
+    @Test
+    fun `smartAssignFromParsed binds seasonless parsed files in all seasons mode`() = runTest(testDispatcher) {
+        val vm = BatchMatchViewModel(settings, tmdbSearch, tmdbDetail)
+        val files = listOf(seasonlessFileMatch("/jiaYe12.mkv", ep = 12))
+        coEvery { tmdbDetail.getTv(100, "zh-CN") } returns tvMeta(100, 1)
+        coEvery { tmdbDetail.getSeason(100, 1, "zh-CN") } returns seasonDetail(1, 15)
+        vm.load(files)
+        advanceUntilIdle()
+        assertThat(vm.uiState.value.seasonNumber).isNull() // 默认「全部季」
+        vm.unbindAll()
+
+        vm.smartAssignFromParsed()
+
+        assertThat(vm.uiState.value.bindings["/jiaYe12.mkv"]).isEqualTo(BatchMatchViewModel.SlotKey(1, 12))
+    }
+
     @Test
     fun `unbindAll clears bindings but keeps files`() = runTest(testDispatcher) {
         val vm = newViewModelWithLoadedState()
@@ -265,6 +312,44 @@ class BatchMatchViewModelTest {
         advanceUntilIdle()
         return vm
     }
+
+    /**
+     * 构造一个已 load 完成的 VM：文件为 S01E12/S01E13（模拟不从第 1 集开始的批次），
+     * 单季共 [episodeCount] 集。默认「全部季」模式下 episodeList 为 S1 全部集。
+     */
+    private fun TestScope.newViewModelWithEpisodeFiles(episodeCount: Int): BatchMatchViewModel {
+        val vm = BatchMatchViewModel(settings, tmdbSearch, tmdbDetail)
+        val files = listOf(
+            fileMatch("/s01e12.mkv", season = 1, ep = 12, tvId = 100),
+            fileMatch("/s01e13.mkv", season = 1, ep = 13, tvId = 100),
+        )
+        coEvery { tmdbDetail.getTv(100, "zh-CN") } returns tvMeta(100, 1)
+        coEvery { tmdbDetail.getSeason(100, 1, "zh-CN") } returns seasonDetail(1, episodeCount)
+        vm.load(files)
+        advanceUntilIdle()
+        return vm
+    }
+
+    /** 无季号解析文件（如 `家业.第12集`）：parsed.season=null，matched 仍有季集元数据供 load 投票。 */
+    private fun seasonlessFileMatch(path: String, ep: Int, tvId: Int = 100): MatchViewModel.FileMatch =
+        MatchViewModel.FileMatch(
+            filePath = path,
+            parsed = ParsedFilename(
+                title = "家业",
+                season = null,
+                episodes = listOf(ep),
+                mediaType = MediaType.EPISODE,
+            ),
+            status = MatchViewModel.MatchStatus.CONFIRMED,
+            matched = MediaMetadata(
+                type = MediaType.EPISODE,
+                id = tvId,
+                name = "家业",
+                numberOfSeasons = 1,
+                seasonNumber = 1,
+                episodeNumbers = listOf(ep),
+            ),
+        )
 
     private fun fileMatch(path: String, season: Int, ep: Int, tvId: Int = 100): MatchViewModel.FileMatch =
         MatchViewModel.FileMatch(

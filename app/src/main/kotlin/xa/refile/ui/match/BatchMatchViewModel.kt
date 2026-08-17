@@ -250,39 +250,87 @@ class BatchMatchViewModel @Inject constructor(
     }
 
     /**
-     * 智能识别：仅对未绑定文件，按 (file.parsed.season, file.parsed.episodes.firstOrNull())
-     * 匹配 episodeList 中的槽位；parsed.season 为 null 时回退到「全部季」模式下的所有季查找。
-     * 仅填空槽（已占用跳过），避免覆盖已有绑定。
+     * 智能识别（重绑定语义）：按各文件 parsed 的 (season, episodes.first) 重新分配槽位。
      *
-     * 单季模式（seasonNumber != null）下，parsed.season 与当前季不符则跳过。
+     * 修复「点击智能没反应」：旧实现 `if (f.filePath in newBindings) return@forEach` 只填空槽，
+     * 初始加载（matched 初始化）或点过「顺序」后所有文件均已绑定 → 点击智能为空操作，
+     * 错误绑定（如 E12 文件被顺序填到 E01 槽）无法纠正。现改为：
+     * - 可解析集号的文件一律按解析结果**重绑**（覆盖旧的错误/顺序绑定）；
+     * - 「全部季」模式下 parsed.season 为 null（如 `家业.第12集`）时不再跳过，
+     *   按集号在所有季中查找槽位（取最早一季）；解析季越界时同样回退全季查找；
+     * - 无法解析集号的文件保留原绑定（仅当该槽未被智能结果占用），避免覆盖手动绑定；
+     * - 两个文件解析到同一槽时先到者得，后到者解绑。
+     *
+     * 单季模式（seasonNumber != null）下，parsed.season 与当前季不符的文件不参与智能重绑。
      */
     fun smartAssignFromParsed() {
         val s = _uiState.value
         if (s.episodeList.isEmpty()) return
         val currentSeason = s.seasonNumber
         val slotByKey = s.episodeList.associateBy { SlotKey(it.seasonNumber, it.episodeNumber) }
-        val occupied = s.bindings.values.toMutableSet()
-        val newBindings = s.bindings.toMutableMap()
+
+        val newBindings = LinkedHashMap<String, SlotKey>()
+        val occupied = mutableSetOf<SlotKey>()
+        // 不可解析（无集号/季不符/越界）文件的原绑定，稍后仅在槽位未被占用时保留
+        val keepCandidates = mutableListOf<Pair<String, SlotKey>>()
+
         s.files.forEach { f ->
-            if (f.filePath in newBindings) return@forEach  // 已绑定，跳过
             val parsedSeason = f.parsed.season
-            // 单季模式下，parsed.season 与当前季不符则跳过
-            if (currentSeason != null && parsedSeason != null && parsedSeason != currentSeason) return@forEach
-            val ep = f.parsed.episodes.firstOrNull() ?: return@forEach
-            // 确定 season：单季模式用 currentSeason；全部季模式用 parsedSeason（无则跳过）
-            val season = currentSeason ?: parsedSeason ?: return@forEach
-            val key = SlotKey(season, ep)
-            if (key !in slotByKey) return@forEach  // 越界
-            if (key in occupied) return@forEach  // 槽位已占用（仅填空槽）
+            val ep = f.parsed.episodes.firstOrNull()
+            val seasonMismatch = currentSeason != null && parsedSeason != null && parsedSeason != currentSeason
+            if (ep == null || seasonMismatch) {
+                s.bindings[f.filePath]?.takeIf { it in slotByKey }?.let { keepCandidates.add(f.filePath to it) }
+                return@forEach
+            }
+            val key = resolveSmartSlot(currentSeason, parsedSeason, ep, slotByKey)
+            if (key == null || key in occupied) {
+                // 越界或与他文件解析到同一槽：不绑定（重复时先到者得）
+                if (key != null) return@forEach
+                s.bindings[f.filePath]?.takeIf { it in slotByKey }?.let { keepCandidates.add(f.filePath to it) }
+                return@forEach
+            }
             newBindings[f.filePath] = key
             occupied.add(key)
+        }
+        // 不可解析文件：原绑定槽未被智能结果占用时保留（不覆盖正确绑定）
+        keepCandidates.forEach { (fp, key) ->
+            if (key !in occupied) {
+                newBindings[fp] = key
+                occupied.add(key)
+            }
         }
         _uiState.update { it.copy(bindings = newBindings) }
     }
 
     /**
+     * 为解析出的 (season?, episode) 定位槽位：
+     * - 单季模式：固定 (currentSeason, ep)；
+     * - 全部季模式：优先 (parsedSeason, ep)；无季号或解析季不在集列表时，
+     *   按集号在所有季中查找（取最早一季），支持 `第12集` 这类无季号命名。
+     */
+    private fun resolveSmartSlot(
+        currentSeason: Int?,
+        parsedSeason: Int?,
+        ep: Int,
+        slotByKey: Map<SlotKey, EditMatchViewModel.EpisodeInfo>,
+    ): SlotKey? {
+        if (currentSeason != null) {
+            return SlotKey(currentSeason, ep).takeIf { it in slotByKey }
+        }
+        if (parsedSeason != null) {
+            SlotKey(parsedSeason, ep).takeIf { it in slotByKey }?.let { return it }
+        }
+        return slotByKey.keys.filter { it.episode == ep }.minByOrNull { it.season }
+    }
+
+    /**
      * 顺序填充：全部文件按文件名自然排序（数字感知，避免字典序导致 E10 排在 E02 前），
-     * 从 episodeList 首槽起依次绑（覆盖式：先清所有 bindings 再顺序填；超过槽位数的文件留未绑定）。
+     * 从锚定槽起依次绑（覆盖式：先清所有 bindings 再顺序填；超过槽位数的文件留未绑定）。
+     *
+     * 修复「顺序填充后集数错位」：旧实现固定从 episodeList 首槽（S01E01）起填，
+     * 当批次文件不从第 1 集开始（如 E12-E42）时产生固定偏移（E12 文件 → E01 槽）。
+     * 现以自然排序后首个文件的解析集号锚定起始槽（E12 文件 → 从 E12 槽起填），
+     * 后续文件依次落 E13、E14…；首文件无解析集号或越界时回退首槽（原行为）。
      */
     fun fillSequential() {
         val s = _uiState.value
@@ -294,10 +342,22 @@ class BatchMatchViewModel @Inject constructor(
                 b.filePath.substringAfterLast('/'),
             )
         }
+        // 锚定起始槽：首个文件（自然序）解析出的集号对应槽；单季模式列表只含当季按集号匹配，
+        // 全部季模式优先按 (解析季, 集号) 匹配，无季号则取该集号最早出现的槽。
+        val anchorIndex = run {
+            val p = sortedFiles.firstOrNull()?.parsed ?: return@run 0
+            val ep = p.episodes.firstOrNull() ?: return@run 0
+            val idx = s.episodeList.indexOfFirst { e ->
+                e.episodeNumber == ep &&
+                    (p.season == null || s.seasonNumber != null || e.seasonNumber == p.season)
+            }
+            if (idx >= 0) idx else 0
+        }
         val newBindings = buildMap {
             for ((i, f) in sortedFiles.withIndex()) {
-                if (i >= s.episodeList.size) break
-                val ep = s.episodeList[i]
+                val slotIdx = anchorIndex + i
+                if (slotIdx >= s.episodeList.size) break
+                val ep = s.episodeList[slotIdx]
                 put(f.filePath, SlotKey(ep.seasonNumber, ep.episodeNumber))
             }
         }
