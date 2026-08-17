@@ -10,7 +10,7 @@ package xa.refile.core.webdav
  * @property displayName   展示名（D:displayname），对应 FileContext.displayName。
  * @property isCollection  是否目录（D:resourcetype 内存在 D:collection）。
  * @property contentLength 字节长度（D:getcontentlength），对应 FileContext.contentLength。
- * @property lastModified  最后修改时间 RFC1123 字符串（D:getlastmodified），对应 FileContext.lastModified。
+ * @property lastModified  最后修改时间 ISO 8601 字符串（D:getlastmodified，UTC 秒精度，如 `2025-08-15T10:00:00Z`），对应 FileContext.lastModified。
  * @property creationDate  创建时间（D:creationdate）。
  * @property contentType   MIME 类型（D:getcontenttype）。
  */

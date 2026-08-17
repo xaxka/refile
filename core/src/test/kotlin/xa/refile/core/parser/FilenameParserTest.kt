@@ -64,11 +64,14 @@ class FilenameParserTest {
     @Test fun `standalone E02`() {
         val r = parser.parse("SomeShow.E02.mkv")
         assertThat(r.episodes).containsExactly(2)
+        // P3 修复（报告 #15）：与 第X集 / [02] / Episode 16 一致，标记为绝对集号
+        assertThat(r.isAbsoluteEpisode).isTrue()
     }
 
     @Test fun `standalone EP02`() {
         val r = parser.parse("SomeShow.EP02.mkv")
         assertThat(r.episodes).containsExactly(2)
+        assertThat(r.isAbsoluteEpisode).isTrue()
     }
 
     @Test fun `bracket episode 02`() {
@@ -318,6 +321,29 @@ class FilenameParserTest {
         val r = parser.parse("12 Monkeys.mkv")
         assertThat(r.episodes).isEmpty()
         assertThat(r.isAbsoluteEpisode).isFalse()
+    }
+
+    // P2 修复（报告 #11）：空格分隔 + 无补零 + 单个 1 位数 → 电影标题尾数，不是绝对集号。
+    @Test fun `single unpadded digit after space is title not episode`() {
+        val super8 = parser.parse("Super 8.mkv")
+        assertThat(super8.episodes).isEmpty()
+        assertThat(super8.isAbsoluteEpisode).isFalse()
+        assertThat(super8.mediaType).isEqualTo(MediaType.MOVIE)
+
+        val district9 = parser.parse("District 9.mkv")
+        assertThat(district9.episodes).isEmpty()
+        assertThat(district9.mediaType).isEqualTo(MediaType.MOVIE)
+    }
+
+    // 对照：补零（"08"）与 -/_ 分隔的单个 1 位数仍是绝对集号（动画命名惯例）。
+    @Test fun `padded or separator attached single digit is absolute episode`() {
+        val padded = parser.parse("Show 08.mkv")
+        assertThat(padded.episodes).containsExactly(8)
+        assertThat(padded.isAbsoluteEpisode).isTrue()
+
+        val dashed = parser.parse("Show-8.mkv")
+        assertThat(dashed.episodes).containsExactly(8)
+        assertThat(dashed.isAbsoluteEpisode).isTrue()
     }
 
     @Test fun `chinese number season and episode`() {

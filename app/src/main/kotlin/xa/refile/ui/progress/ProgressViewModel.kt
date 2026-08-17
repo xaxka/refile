@@ -15,8 +15,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import xa.refile.core.rename.RenameOperation
 import xa.refile.core.rename.RenameOperationJson
 import xa.refile.core.rename.RenameReport
+import xa.refile.core.rename.RenameResult
 import xa.refile.data.repository.RenameCompletionBus
 import xa.refile.worker.RenameWorkScheduler
 import xa.refile.worker.RenameWorker
@@ -157,17 +159,44 @@ class ProgressViewModel @Inject constructor(
     }
 
     /**
-     * 仅重试失败项：取报告 [RenameReport.failedOperations] 重新入队一批只含失败项的操作，
-     * 然后切换 [workId] 观察新批次（页面回到执行中态）。
+     * 重试失败项并切换 [workId] 观察新批次（页面回到执行中态）。
+     *
+     * - [RenameResult.Failed]：主文件未落地，整体重试（主文件 + 伴随）。
+     * - [RenameResult.Partial]：主文件已成功，仅把失败的伴随文件拆为独立操作重试
+     *   （与 [xa.refile.core.rename.RenameExecutor.retry] 语义一致）。
+     *
+     * P2 修复：原实现只取 [RenameReport.failedOperations]（仅 Failed），Partial（主文件
+     * 成功但部分伴随文件失败）被排除——失败的伴随文件重命名永久丢失，无法通过重试恢复。
      */
     fun retryFailed() {
         val current = _report.value ?: return
-        val failedOps = current.failedOperations.map { it.first }
-        if (failedOps.isEmpty() || retryServerId <= 0L) return
+        val retryOps = buildList {
+            for ((op, res) in current.results) {
+                when (res) {
+                    is RenameResult.Failed -> add(op)
+                    is RenameResult.Partial -> {
+                        for (comp in op.companions) {
+                            if (comp.sourcePath in res.failedCompanions) {
+                                add(
+                                    RenameOperation(
+                                        sourcePath = comp.sourcePath,
+                                        targetPath = comp.targetPath,
+                                        companions = emptyList(),
+                                        mediaType = op.mediaType,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                    else -> Unit
+                }
+            }
+        }
+        if (retryOps.isEmpty() || retryServerId <= 0L) return
         viewModelScope.launch {
             val newWorkId = scheduler.enqueue(
                 serverId = retryServerId,
-                operations = failedOps,
+                operations = retryOps,
                 batchName = retryBatchName,
             )
             workId = newWorkId
@@ -177,7 +206,7 @@ class ProgressViewModel @Inject constructor(
             _report.value = null
             _errorMessage.value = null
             _progressCurrent.value = 0
-            _progressTotal.value = failedOps.size
+            _progressTotal.value = retryOps.size
             _currentFilename.value = null
             startObserving()
         }

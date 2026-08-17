@@ -350,7 +350,7 @@ class BrowserViewModel @Inject constructor(
      * 排序：目录始终排在文件前；组内按 [field] 比较，升/降序。
      * - NAME：按 displayName 忽略大小写。
      * - SIZE：按 contentLength（null 视为最大，排末尾）。
-     * - TIME：按 lastModified 字符串（RFC1123 同格式下字典序与时间序一致）。
+     * - TIME：按 lastModified 字符串（ISO 8601 同格式下字典序与时间序一致）。
      */
     private fun sortEntries(entries: List<WebDavEntry>, field: SortField, asc: Boolean): List<WebDavEntry> {
         val cmp = Comparator<WebDavEntry> { a, b ->

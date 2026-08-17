@@ -124,4 +124,34 @@ class CompanionResolverTest {
         assertThat(companions[0].sourcePath).isEqualTo("/a.srt")
         assertThat(companions[0].targetPath).isEqualTo("/target/a.srt")
     }
+
+    /** P2 修复（报告 #12）：大小写不敏感匹配 —— 主文件 A.mkv 应匹配伴随 a.srt / A.NFO。 */
+    @Test fun `resolve matches companions case-insensitively`() = runTest {
+        val caseMixed = """<?xml version="1.0"?><D:multistatus xmlns:D="DAV:">
+            |  <D:response><D:href>/</D:href><D:propstat><D:prop>
+            |    <D:resourcetype><D:collection/></D:resourcetype>
+            |  </D:prop></D:propstat></D:response>
+            |  <D:response><D:href>/A.mkv</D:href><D:propstat><D:prop>
+            |    <D:displayname>A.mkv</D:displayname>
+            |  </D:prop></D:propstat></D:response>
+            |  <D:response><D:href>/a.srt</D:href><D:propstat><D:prop>
+            |    <D:displayname>a.srt</D:displayname>
+            |  </D:prop></D:propstat></D:response>
+            |  <D:response><D:href>/A.nfo</D:href><D:propstat><D:prop>
+            |    <D:displayname>A.nfo</D:displayname>
+            |  </D:prop></D:propstat></D:response>
+            |  <D:response><D:href>/B.srt</D:href><D:propstat><D:prop>
+            |    <D:displayname>B.srt</D:displayname>
+            |  </D:prop></D:propstat></D:response>
+            |</D:multistatus>""".trimMargin()
+        server.enqueue(MockResponse().setResponseCode(207).setBody(caseMixed))
+
+        val companions = resolver.resolve("/A.mkv", "/target/renamed.mkv")
+
+        // a.srt 与 A.nfo 大小写不敏感匹配成功；B.srt 不匹配
+        assertThat(companions).hasSize(2)
+        assertThat(companions.map { it.sourcePath }).containsExactly("/a.srt", "/A.nfo")
+        assertThat(companions.map { it.targetPath })
+            .containsExactly("/target/renamed.srt", "/target/renamed.nfo")
+    }
 }

@@ -33,6 +33,7 @@
     <string name="server_edit_username">用户名（必填，不支持匿名访问）</string>
     <string name="server_edit_password_edit">密码（留空保留原密码）</string>
     <string name="server_edit_password">密码</string>
+    <string name="server_edit_clear_password">清空已存密码</string>
     <string name="server_edit_hide_password">隐藏密码</string>
     <string name="server_edit_show_password">显示密码</string>
     <string name="server_edit_type">服务器类型</string>

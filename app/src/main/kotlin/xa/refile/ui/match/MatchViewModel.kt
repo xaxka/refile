@@ -17,6 +17,7 @@ import xa.refile.core.parser.ParsedFilename
 import xa.refile.core.tmdb.TmdbImages
 import xa.refile.core.tmdb.TmdbMapper
 import xa.refile.data.prefs.SettingsRepository
+import xa.refile.data.repository.TmdbClientProvider
 import xa.refile.data.repository.TmdbDetailFetcher
 import xa.refile.data.repository.TmdbDetailRepository
 import xa.refile.data.repository.TmdbSearchRepository
@@ -228,8 +229,13 @@ class MatchViewModel @Inject constructor(
             val movieCandidatesByFileIdx = preFetchMovieCandidates(parsedByIndex, types, language)
 
             // 文件级并发匹配：各文件 TMDB 搜索/详情互相独立，用 Semaphore 限流。
+            // P3 修复（报告 #16）：Semaphore 许可与 OkHttp maxRequestsPerHost 同步钳制。
+            // 每个在飞文件匹配约产生 1 个并发 HTTP 请求；若 Semaphore 放行数超过
+            // [TmdbClientProvider.MAX_CONCURRENT_PER_HOST]（TMDB 每 IP 并发上限），
+            // 多余协程会在 OkHttp 就绪队列排队并占用许可，吞吐不再提升还虚占并发额度。
             val concurrency = settings.concurrencyLimit.first()
-            val semaphore = Semaphore(concurrency.coerceAtLeast(1))
+                .coerceIn(1, TmdbClientProvider.MAX_CONCURRENT_PER_HOST)
+            val semaphore = Semaphore(concurrency)
             val progressCounter = AtomicInteger(0)
 
             val allMatches = coroutineScope {
@@ -609,10 +615,25 @@ class MatchViewModel @Inject constructor(
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 null
             }
+            // P3 修复（报告 #14）：详情拉取失败时不得标记 CONFIRMED 并移入 results。
+            // CONFIRMED + matched=null 会让后续预览/重命名拿到空元数据（变量渲染为空串），
+            // 且用户无从得知该条目实际未就绪。失败时保留在 pending 并在条目上标记错误，
+            // 用户可重试或改选其它候选。
+            if (meta == null) {
+                _uiState.update { s ->
+                    s.copy(
+                        manualSearchingPath = null,
+                        error = "拉取详情失败",
+                        pending = s.pending.map {
+                            if (it.filePath == filePath) it.copy(error = "拉取详情失败") else it
+                        },
+                    )
+                }
+                return@launch
+            }
             val confirmed = fm.copy(
                 status = MatchStatus.CONFIRMED,
                 matched = meta,
-                error = if (meta == null) "拉取详情失败" else null,
             )
             _uiState.update { s ->
                 s.copy(

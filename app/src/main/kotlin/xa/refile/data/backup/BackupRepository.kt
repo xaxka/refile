@@ -174,11 +174,24 @@ class BackupRepository @Inject constructor(
             // 测试反馈 Item 9：电影/剧集模板分离备份恢复（兼容旧版空值）。
             // 旧版单模板字段 templateString 在运行时仍被 PreviewViewModel 读取，
             // 故同步为电影模板以保持不变量（templateString == movieTemplateString）。
+            //
+            // P2 修复：旧版备份只有 templateString（无 movie/episode 字段，反序列化后
+            // 两者为空串）——原实现因两者 isNotBlank 不成立而整体跳过，旧版自定义模板
+            // 被静默丢弃。修复：movie/episode 为空但旧版 templateString 非空时，
+            // 把旧单模板回填到两者（旧版语义即电影/剧集共用一条模板）。
+            val legacyTemplate = templateString.takeIf { it.isNotBlank() }
             if (movieTemplateString.isNotBlank()) {
                 settings.setMovieTemplateString(movieTemplateString)
                 settings.setTemplateString(movieTemplateString)
+            } else if (legacyTemplate != null) {
+                settings.setMovieTemplateString(legacyTemplate)
+                settings.setTemplateString(legacyTemplate)
             }
-            if (episodeTemplateString.isNotBlank()) settings.setEpisodeTemplateString(episodeTemplateString)
+            if (episodeTemplateString.isNotBlank()) {
+                settings.setEpisodeTemplateString(episodeTemplateString)
+            } else if (legacyTemplate != null) {
+                settings.setEpisodeTemplateString(legacyTemplate)
+            }
         }
 
         ApplyResult.Success

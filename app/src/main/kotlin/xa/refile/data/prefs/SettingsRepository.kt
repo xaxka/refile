@@ -12,6 +12,7 @@ import xa.refile.data.crypto.KeystoreCrypto
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -40,6 +41,16 @@ class SettingsRepository @Inject constructor(
 ) {
 
     /**
+     * P3 修复（报告 #17）：迁移一次性守卫。[apiKey] 被 MatchViewModel / TemplateEditor /
+     * Settings 等多处并发收集，v2 标志落盘前每个收集器都会在 map 内重复执行
+     * encrypt+edit（冗余 IO，且每次 edit 都触发 Flow 重发射）。用 CAS 保证本进程内
+     * 只有一个收集者真正回写；快路径（v2=true）也会置位，防止「先收集到已迁移数据、
+     * 后收集到陈旧 emission」的极端交错重复迁移。进程重启后标志复位，若上次写盘
+     * 失败可自然重试。
+     */
+    private val apiKeyMigrationDone = AtomicBoolean(false)
+
+    /**
      * TMDB API Key；未设置返回空串。
      *
      * 读取流程：
@@ -48,14 +59,15 @@ class SettingsRepository @Inject constructor(
      * 3. 未迁移（旧版明文）：尝试 decrypt；成功说明其实已是密文（中途异常），置 v2 标志；
      *    失败视为明文 Key，加密回写并置 v2 标志，完成一次性迁移。
      *
-     * 迁移在 Flow 内完成——仅执行一次（v2 标志之后走分支 2）。
+     * 迁移在 Flow 内完成——仅执行一次（v2 标志之后走分支 2 + [apiKeyMigrationDone] 守卫）。
      */
     val apiKey: Flow<String> = context.dataStore.data.map { prefs ->
         val stored = prefs[KEY_API_KEY] ?: ""
         if (stored.isEmpty()) return@map ""
         if (prefs[KEY_API_KEY_V2] == true) {
+            apiKeyMigrationDone.set(true)
             runCatching { crypto.decrypt(stored) }.getOrDefault("")
-        } else {
+        } else if (apiKeyMigrationDone.compareAndSet(false, true)) {
             // 兼容旧明文：尝试解密成功 → 已是密文（异常路径）；失败 → 当作明文重新加密回写。
             val plain = runCatching { crypto.decrypt(stored) }.getOrNull()
             if (plain != null) {
@@ -65,6 +77,10 @@ class SettingsRepository @Inject constructor(
                 migrateApiKeyDone(crypto.encrypt(stored))
                 stored
             }
+        } else {
+            // 并发收集的迁移竞争失败方：本轮直接按「密文优先，失败回退明文」读出，
+            // 不做 edit；迁移完成后 DataStore 重发射会走快路径。
+            runCatching { crypto.decrypt(stored) }.getOrNull() ?: stored
         }
     }
 

@@ -478,8 +478,11 @@ class FilenameParser {
             return SeasonEpisodeResult(m.groupValues[1].toInt(), emptyList(), false)
         }
         // 独立集号 E02 / EP02（需 E/EP 前缀，避免误判 Apollo 13 / 2012）
+        // P3 修复（报告 #15）：与其它无季上下文的集号形态（第X集 / [02] / Episode 16 /
+        // 尾随数字）一致地标记 isAbsolute=true。同为「无季号孤立集号」，语义上就是
+        // 绝对集号；此前 false 导致 absolute_episode 变量与匹配行为在同形态间不一致。
         STANDALONE_EP.find(spaced)?.let { m ->
-            return SeasonEpisodeResult(null, listOf(m.groupValues[1].toInt()), false)
+            return SeasonEpisodeResult(null, listOf(m.groupValues[1].toInt()), false, isAbsolute = true)
         }
         // 仅季号 S01 / S1（scene 季打包 `S01.COMPLETE` 常见，无集号）
         // 前导非字母避免误伤 `Series`；放在 STANDALONE_EP 之后、BRACKET_EP 之前。
@@ -522,6 +525,12 @@ class FilenameParser {
     /**
      * 绝对集号识别：在无其他季集标记时，取文件名中最后一个独立的 1-3 位数字作为集号；
      * 支持 `01-03` 区间。排除：位于开头的数字（如 "12 Monkeys" 标题）、年份范围、分辨率片段。
+     *
+     * P2 修复（报告 #11）：空格分隔且无补零的单个 1 位数尾随数字（"Super 8" / "District 9" /
+     * "Ocean's 8"）不识别为绝对集号——该形态绝大多数是电影标题的一部分；动画绝对
+     * 集号惯例为补零（"08"）或用 -/_ 分隔（"Show-8"）。空格分隔的 2-3 位无补零数字
+     * （"Apollo 13" vs "Show 12"）在纯解析层不可区分，维持既有契约（判为剧集），
+     * 由匹配阶段的用户确认兜底。
      */
     private fun tryAbsoluteEpisode(spaced: String): SeasonEpisodeResult? {
         val matches = ABSOLUTE_EP.findAll(spaced).toList()
@@ -535,6 +544,10 @@ class FilenameParser {
         if (first in 1900..2099) return null
         // 排除分辨率片段（720/480/540/360 等，正常有 p/i 后缀已被边界拦截，此处双保险）
         if (first in TECH_NUMBERS) return null
+        // P2 修复（报告 #11）：空格分隔 + 无补零 + 单个 1 位数（无区间）→ 视为标题尾数（Super 8 等），
+        // 不作为绝对集号。补零（"08"）、区间（"8-9"）、-/_ 分隔（"Show-8"）不受影响。
+        val precedingSep = spaced[numGroup.range.first - 1]
+        if (precedingSep == ' ' && numGroup.value.length == 1 && m.groups[2] == null) return null
         // 集号区间 01-03（P0.2：跨度超限时只保留起始集号）
         val rangeEnd = m.groups[2]?.value?.toIntOrNull()
         val episodes = if (rangeEnd != null && rangeEnd >= first && rangeEnd - first <= MAX_EPISODE_RANGE) {
@@ -1023,6 +1036,12 @@ class FilenameParser {
      * B13 修复：原实现的减法逻辑对非标准罗马数字（如 IIX）会算出错误值。
      * 新实现改用标准罗马数字校验：减法规则只允许 I/V/X 在更大的前缀前出现，
      * 且不能出现连续两个减法对。验证失败返回 null。
+     *
+     * P2 修复：原实现存在两处问题——
+     * 1) `prev` 变量为死代码（赋值后从未读取，声称的「IVI 不合法」校验实际未实现，
+     *    IVI 会被解析为 5）；2) 非规范形式（IVI/IIII/IVIV 等）均被接受。
+     * 新实现改用严格校验：按标准减法算法求值后，把总值重新编码为规范罗马数字并与
+     * 输入比对——不一致即非规范形式，返回 null（IVI 值为 5，规范形式是 V）。
      */
     private fun romanToInt(s: String): Int? {
         if (s.isEmpty()) return null
@@ -1031,41 +1050,42 @@ class FilenameParser {
             'C' to 100, 'D' to 500, 'M' to 1000,
         )
         if (s.any { it !in values }) return null
-        // B13 修复：用标准算法——每个字符值与下一字符比较，大→加，小→减。
-        // 同时校验：不能连续出现两个减法对（如 IIX 不合法），且减法前缀字符必须合规
-        // （I 只能放在 V/X 前，X 只能放在 L/C 前，C 只能放在 D/M 前）。
+        // 标准求值：当前值 < 下一值时按减法对处理，否则累加。
         var total = 0
-        var prev = 0
         var i = 0
         val arr = s.toCharArray()
         while (i < arr.size) {
             val v = values[arr[i]]!!
             val next = if (i + 1 < arr.size) values[arr[i + 1]]!! else 0
             if (v < next) {
-                // 减法规则：校验前缀字符合规
-                val subtractiveChar = arr[i]
-                val validSubtractive = when (subtractiveChar) {
-                    'I' -> arr[i + 1] == 'V' || arr[i + 1] == 'X'
-                    'X' -> arr[i + 1] == 'L' || arr[i + 1] == 'C'
-                    'C' -> arr[i + 1] == 'D' || arr[i + 1] == 'M'
-                    else -> false // V/L/D/M 不能作为减法前缀
-                }
-                if (!validSubtractive) return null
-                // 不能连续两个减法对（如 IXL 不合法）
-                if (i + 2 < arr.size) {
-                    val afterNext = values[arr[i + 2]]!!
-                    if (next < afterNext) return null
-                }
                 total += next - v
                 i += 2
             } else {
                 total += v
                 i += 1
             }
-            // 不能出现降序后立即更小（如 IVI 不合法——V 后跟 I）
-            prev = v
         }
-        return total
+        if (total !in 1..3999) return null
+        // 严格校验：回编码比对，保证输入本身就是规范罗马数字。
+        return total.takeIf { intToRoman(it) == s }
+    }
+
+    /** 整数 → 规范罗马数字（1..3999，贪婪降级）。供 [romanToInt] 做回编码校验。 */
+    private fun intToRoman(n: Int): String {
+        val table = arrayOf(
+            1000 to "M", 900 to "CM", 500 to "D", 400 to "CD",
+            100 to "C", 90 to "XC", 50 to "L", 40 to "XL",
+            10 to "X", 9 to "IX", 5 to "V", 4 to "IV", 1 to "I",
+        )
+        var rem = n
+        val sb = StringBuilder()
+        for ((v, sym) in table) {
+            while (rem >= v) {
+                sb.append(sym)
+                rem -= v
+            }
+        }
+        return sb.toString()
     }
 
     companion object {

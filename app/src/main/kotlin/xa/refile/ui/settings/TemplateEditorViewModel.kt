@@ -405,8 +405,11 @@ class TemplateEditorViewModel @Inject constructor(
                     "overview" to "道姆·柯布与同事在梦境中潜入他人潜意识窃取秘密。",
                     "popularity" to "85.4",
                 ),
+                // P2 修复：localize 内层 key 与 TmdbMapper.buildLocalize 对齐（n/o/t 短键）。
+                // 原样例用 "overview"，导致 {localize.<lang>.o} 在编辑器预览解析失败（实际重命名正常），
+                // 预览与真实行为不一致。
                 localize = mapOf(
-                    "zh-CN" to mapOf("n" to "盗梦空间", "overview" to "诺兰执导的科幻悬疑片"),
+                    "zh-CN" to mapOf("n" to "盗梦空间", "o" to "诺兰执导的科幻悬疑片"),
                     "ja-JP" to mapOf("n" to "インセプション"),
                 ),
             ),
@@ -481,7 +484,7 @@ class TemplateEditorViewModel @Inject constructor(
                     "popularity" to "120.5",
                 ),
                 localize = mapOf(
-                    "zh-CN" to mapOf("n" to "权力的游戏", "overview" to "HBO 出品奇幻史诗剧"),
+                    "zh-CN" to mapOf("n" to "权力的游戏", "o" to "HBO 出品奇幻史诗剧"),
                     "ja-JP" to mapOf("n" to "ゲーム・オブ・スローンズ"),
                 ),
                 order = mapOf(

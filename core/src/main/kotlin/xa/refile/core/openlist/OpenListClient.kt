@@ -235,6 +235,12 @@ class OpenListClient internal constructor(
      * - 同父目录：`/api/fs/rename`（path=源, name=新基名）。
      * - 跨父目录：`/api/fs/move`（src_dir/dst_dir/names=[源基名]，保留原基名落到目标父目录），
      *   若源基名 != 目标基名，再 `/api/fs/rename` 改名。
+     *
+     * P2 修复：OpenList 无「跨目录 + 改名」原子操作，原实现 move 成功后 rename 失败时
+     * 文件停留在中间路径（dstParent/源基名）——源路径已不存在，调用方（RenameExecutor/重试）
+     * 按源路径重做必然再失败，进入不可恢复状态。修复：rename 失败时补偿回滚——尽力把文件
+     * move 回源目录，恢复初始状态使整体可重试；回滚自身失败（网络中断等）时吞掉异常、
+     * 保留原始错误向上抛出（文件留在中间路径，至少 move() 如实返回 false）。
      */
     private suspend fun doMove(fromPath: String, toPath: String) {
         val from = normalizePath(fromPath)
@@ -249,7 +255,17 @@ class OpenListClient internal constructor(
             callApi { api.move(FsMoveRequest(srcDir = srcParent, dstDir = dstParent, names = listOf(srcName))) }
             if (srcName != dstName) {
                 val intermediate = joinPath(dstParent, srcName)
-                callApi { api.rename(FsRenameRequest(path = intermediate, name = dstName)) }
+                try {
+                    callApi { api.rename(FsRenameRequest(path = intermediate, name = dstName)) }
+                } catch (e: Exception) {
+                    // 补偿回滚：把文件从中间路径移回源目录；失败不掩盖原始异常。
+                    runCatching {
+                        callApi {
+                            api.move(FsMoveRequest(srcDir = dstParent, dstDir = srcParent, names = listOf(srcName)))
+                        }
+                    }
+                    throw e
+                }
             }
         }
     }

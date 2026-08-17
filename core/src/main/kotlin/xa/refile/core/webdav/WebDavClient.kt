@@ -17,10 +17,10 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import java.io.IOException
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.logging.Level
 import java.util.logging.Logger
 
@@ -242,8 +242,12 @@ class WebDavClient(
             displayName = this[DisplayName::class.java]?.displayName,
             isCollection = resourceType?.types?.contains(ResourceType.COLLECTION) == true,
             contentLength = this[GetContentLength::class.java]?.contentLength,
-            // dav4jvm 把 getlastmodified 解析为 epoch millis，转回 RFC1123 字符串以保持原有契约。
-            lastModified = this[GetLastModified::class.java]?.lastModified?.let(::formatHttpDate),
+            // dav4jvm 把 getlastmodified 解析为 epoch millis，转 ISO 8601 字符串。
+            // P1 修复：原 RFC1123 输出（"Fri, 15 Aug 2025 10:00:00 GMT"）与模板引擎约定不符——
+            // {ct} 文档约定 ISO、{age} 按 substring(0,10) 取 ISO 日期、{ct|format} 只尝试 ISO
+            // 解析，RFC1123 下三者全部失效；且与 OpenList 的 ISO 输出混用时按 TIME 排序字典序
+            // 错乱。统一为固定宽度 ISO（UTC，秒精度），字典序与时间序一致。
+            lastModified = this[GetLastModified::class.java]?.lastModified?.let(::formatIsoDate),
             creationDate = this[CreationDate::class.java]?.creationDate,
             contentType = this[GetContentType::class.java]?.type?.toString(),
         )
@@ -256,15 +260,15 @@ class WebDavClient(
         // 纯 JVM 模块用 JUL（Timber/Android Log 不可用）；调试级日志，默认不输出。
         private val logger = Logger.getLogger(WebDavClient::class.java.name)
 
-        // SimpleDateFormat 非线程安全，用 ThreadLocal 隔离（多协程并发在 IO 上调用）。
-        private val HTTP_DATE_FORMAT = ThreadLocal.withInitial {
-            SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("GMT")
-            }
-        }
+        // P1 修复：ISO 8601（UTC，秒精度，固定宽度）——与 OpenListClient 输出一致，
+        // 可被 {age}/{ct|format}/BindingResolver 按 ISO 解析，字典序排序稳定。
+        // DateTimeFormatter 不可变线程安全，无需 ThreadLocal。
+        private val ISO_UTC_SECONDS: DateTimeFormatter =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                .withZone(ZoneOffset.UTC)
 
-        private fun formatHttpDate(epochMillis: Long): String =
-            HTTP_DATE_FORMAT.get().format(Date(epochMillis))
+        private fun formatIsoDate(epochMillis: Long): String =
+            ISO_UTC_SECONDS.format(Instant.ofEpochMilli(epochMillis).truncatedTo(ChronoUnit.SECONDS))
     }
 }
 

@@ -274,6 +274,9 @@ object PipeModifiers {
                 val hardLimit = args.getOrNull(0)?.toIntOrNull() ?: return value
                 val nonWordPattern = args.getOrNull(1)
                 val s = value.toStr()
+                val hardTruncate = {
+                    s.take(hardLimit).replace(Regex("""[\s\p{Punct}]+$"""), "").trimEnd()
+                }
                 if (s.length <= hardLimit) {
                     s
                 } else if (nonWordPattern != null) {
@@ -285,11 +288,18 @@ object PipeModifiers {
                             softLimit = m.range.first
                         }
                     } catch (e: PatternSyntaxException) {
-                        return s.take(hardLimit).replace(Regex("""[\s\p{Punct}]+$"""), "").trimEnd()
+                        softLimit = 0
                     }
-                    s.take(softLimit).replace(Regex("""[\s\p{Punct}]+$"""), "").trimEnd()
+                    // P2 修复：原实现 softLimit 无匹配时保持 0，s.take(0) 输出空串——
+                    // 模式串在 hardLimit 内无任何匹配（或全文无匹配）时整段文件名丢失。
+                    // 修复：无软边界（或模式非法）时回退到硬截断，保证始终有输出。
+                    if (softLimit > 0) {
+                        s.take(softLimit).replace(Regex("""[\s\p{Punct}]+$"""), "").trimEnd()
+                    } else {
+                        hardTruncate()
+                    }
                 } else {
-                    s.take(hardLimit).replace(Regex("""[\s\p{Punct}]+$"""), "").trimEnd()
+                    hardTruncate()
                 }
             }
             // 去除非法字符与首尾点（".hack" → "hack"）

@@ -34,6 +34,17 @@ class TmdbClientProvider @Inject constructor(
     private val settings: SettingsRepository,
 ) {
 
+    companion object {
+        /**
+         * TMDB 单 host 并发上限（OkHttp [okhttp3.Dispatcher.maxRequestsPerHost]）。
+         * TMDB 官方限制每 IP 20 个并发连接，连接池与调度器均按此顶格配置。
+         * P3 修复（报告 #16）：公开该值供上层（MatchViewModel 并发 Semaphore）同步钳制，
+         * 避免 Semaphore 放行的协程数超过 HTTP 层并发容量（多余的协程在 OkHttp 就绪队列
+         * 排队且占用许可，吞吐不再提升）。
+         */
+        const val MAX_CONCURRENT_PER_HOST = 20
+    }
+
     /**
      * 共享 OkHttpClient：所有 TMDB 请求复用同一连接池/线程池，避免每次请求新建 client 造成资源泄漏。
      *
@@ -51,7 +62,7 @@ class TmdbClientProvider @Inject constructor(
             .dispatcher(
                 Dispatcher().apply {
                     maxRequests = 64
-                    maxRequestsPerHost = 20
+                    maxRequestsPerHost = MAX_CONCURRENT_PER_HOST
                 },
             )
             .build()
@@ -78,6 +89,12 @@ class TmdbClientProvider @Inject constructor(
      * （`deferred.await()` 抛 CancellationException）时也会移除 entry——但底层 ioScope.async
      * 仍在运行（SupervisorJob 独立于调用方）。后续相同 key 的请求会 miss 并发起新请求，
      * 浪费正在进行的网络请求。修复：仅在 deferred 自身完成（非调用方取消）时才移除 entry。
+     *
+     * 泄漏修复：原「`finally` 中按 `deferred.isCompleted` 条件清理」存在漏洞——调用方被取消时
+     * finally 执行但 deferred 未完成而跳过清理，此后 deferred 完成时再无任何代码路径清理该
+     * entry，inFlight 永久泄漏（成功则同 key 请求永远复用陈旧结果，失败则永远重抛缓存异常）。
+     * 修复：改用 [Deferred.invokeOnCompletion]，无论是否有调用方在 await，deferred 一旦完成
+     * （成功/失败/取消）即从表中移除，保证表大小只与真正在飞的请求数一致。
      */
     suspend fun <T> coalesce(key: String, fetch: suspend () -> T): T {
         inFlight[key]?.let { @Suppress("UNCHECKED_CAST") return (it as Deferred<T>).await() }
@@ -87,18 +104,11 @@ class TmdbClientProvider @Inject constructor(
             deferred.cancel() // LAZY 尚未启动，安全取消
             @Suppress("UNCHECKED_CAST") return (prev as Deferred<T>).await()
         }
-        try {
-            return deferred.await()
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            // B3 修复：调用方协程被取消时，不移除 inFlight entry——底层 async 仍在 ioScope 运行，
-            // 后续相同 key 的请求仍可复用。entry 会在 deferred 完成后由下面的 invokeOnCompletion 清理。
-            throw e
-        } finally {
-            // 仅当 deferred 自身已完成（非调用方取消）时才清理 entry。
-            if (deferred.isCompleted) {
-                inFlight.remove(key, deferred as Deferred<Any?>)
-            }
-        }
+        // deferred 完成（成功/失败/取消）时无条件移除 entry，不依赖调用方 await 的 finally。
+        deferred.invokeOnCompletion { inFlight.remove(key, deferred as Deferred<Any?>) }
+        // 调用方协程被取消时 await 抛 CancellationException；底层 async 仍在 ioScope 运行，
+        // 完成后由上面的 invokeOnCompletion 清理 entry，后续相同 key 请求可正常复用或重发。
+        return deferred.await()
     }
 
     /**

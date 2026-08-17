@@ -31,7 +31,8 @@ class ServerRepository @Inject constructor(
 
     /**
      * 共享 OkHttpClient：OkHttp 的 ConnectionPool 按 host 内部隔离，多服务器共享同一实例
-     * 不会导致连接争用。按并发设置同步调整 [okhttp3.Dispatcher.maxRequestsPerHost] 即可。
+     * 不会导致连接争用。需要独立并发上限时经 [clientFor] 的 maxRequestsPerHost 参数
+     * 用 newBuilder() 派生（共享连接池、独立 Dispatcher），不修改本实例的全局配置。
      */
     private val sharedClient by lazy {
         OkHttpClient.Builder()
@@ -81,18 +82,22 @@ class ServerRepository @Inject constructor(
 
     /**
      * 更新服务器配置。
+     * - [clearPassword] 为 true：清除已存密码（[ServerConfigEntity.encryptedPassword] 置 null）。
      * - [newPassword] 非空且非空白：重新加密并替换 [ServerConfigEntity.encryptedPassword]。
      * - 否则：保留原密文，仅更新其它字段与 [ServerConfigEntity.updatedAt]。
+     *
+     * P2 修复（报告 #13）：新增 [clearPassword] 显式清空入口。此前密码留空一律
+     * 视为「保留原密文」，用户一旦设置密码便无法清除（只能删除重建服务器）。
      */
-    suspend fun updateServer(entity: ServerConfigEntity, newPassword: String?) {
+    suspend fun updateServer(entity: ServerConfigEntity, newPassword: String?, clearPassword: Boolean = false) {
         val now = System.currentTimeMillis()
-        val updated = if (!newPassword.isNullOrBlank()) {
-            entity.copy(
+        val updated = when {
+            clearPassword -> entity.copy(encryptedPassword = null, updatedAt = now)
+            !newPassword.isNullOrBlank() -> entity.copy(
                 encryptedPassword = crypto.encrypt(newPassword),
                 updatedAt = now,
             )
-        } else {
-            entity.copy(updatedAt = now)
+            else -> entity.copy(updatedAt = now)
         }
         dao.update(updated)
     }
@@ -117,15 +122,31 @@ class ServerRepository @Inject constructor(
      * 按 [ServerConfigEntity.type] 构造对应的 [FileClient]（WebDAV 或 OpenList）。
      *
      * 解密存储的密码，按 [buildFullBaseUrl] 取完整 baseUrl 后构造 client。
-     * 所有 server 共享同一个 [OkHttpClient]（OkHttp ConnectionPool 内部按 host 隔离），
-     * 仅按需调整 Dispatcher.maxRequestsPerHost 控制并发。
+     * 所有 server 共享同一个 [OkHttpClient]（OkHttp ConnectionPool 内部按 host 隔离）；
+     * 传入 [maxRequestsPerHost] 时经 newBuilder() 派生带独立 Dispatcher 的 client
+     * （共享连接池），仅影响本次返回的 client。
      */
     suspend fun clientFor(
         entity: ServerConfigEntity,
         maxRequestsPerHost: Int? = null,
     ): FileClient {
-        if (maxRequestsPerHost != null) {
-            sharedClient.dispatcher.maxRequestsPerHost = maxRequestsPerHost.coerceAtLeast(1)
+        // P2 修复：原实现直接改共享单例的 dispatcher.maxRequestsPerHost——全局生效且
+        // 「粘住」：RenameWorker/HistoryRepository 按并发设置调用后，后续不带参数的调用
+        // （浏览/预览/连接测试）也继承该上限，跨服务器互相干扰（并发设为 1 时浏览变串行）。
+        // 修复：newBuilder() 派生共享连接池、独立 Dispatcher 的 client，作用域仅限本次调用。
+        val client = if (maxRequestsPerHost != null) {
+            val perHost = maxRequestsPerHost.coerceAtLeast(1)
+            sharedClient.newBuilder()
+                .dispatcher(
+                    okhttp3.Dispatcher().apply {
+                        // maxRequests 需 >= maxRequestsPerHost，否则 host 上限被全局上限截断。
+                        this.maxRequests = maxOf(sharedClient.dispatcher.maxRequests, perHost)
+                        this.maxRequestsPerHost = perHost
+                    },
+                )
+                .build()
+        } else {
+            sharedClient
         }
         val decryptedPassword = entity.encryptedPassword?.let { crypto.decrypt(it) }
         val fullBaseUrl = buildFullBaseUrl(entity)
@@ -134,10 +155,10 @@ class ServerRepository @Inject constructor(
                 baseUrl = fullBaseUrl,
                 username = entity.username,
                 password = decryptedPassword,
-                client = sharedClient,
+                client = client,
             )
         } else {
-            WebDavClient(fullBaseUrl, entity.username, decryptedPassword, sharedClient)
+            WebDavClient(fullBaseUrl, entity.username, decryptedPassword, client)
         }
     }
 

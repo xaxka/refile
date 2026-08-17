@@ -13,8 +13,10 @@ import kotlinx.serialization.Serializable
  * 不含重命名历史与缓存（Task 5.2 要求：历史与缓存不纳入备份）。
  *
  * 模板只备份 movie/episode 两条模板串（[SettingsSnapshot.movieTemplateString]/
- * [episodeTemplateString]）；不再单列 `templates` 块或旧版 `templateString` 字段。
- * 旧版备份文件中的这些字段因 `ignoreUnknownKeys=true` 会被安全忽略。
+ * [episodeTemplateString]）；不再单列 `templates` 块。
+ * 旧版单模板字段 [SettingsSnapshot.templateString] 保留为可缺省字段：导入旧备份时
+ * 由 [BackupRepository.applyImport] 回填到 movie/episode，避免旧版自定义模板丢失。
+ * 旧版备份文件中的其余未知字段因 `ignoreUnknownKeys=true` 会被安全忽略。
  */
 
 /** 备份文件根结构。 */
@@ -60,6 +62,11 @@ data class SettingsSnapshot(
     val presetId: String = "DEFAULT",
     val movieTemplateString: String = "",
     val episodeTemplateString: String = "",
+    /**
+     * 旧版单模板字段（电影/剧集模板分离前）。仅用于导入旧备份时回填
+     * movie/episode 模板；新导出的备份恒为空串（模板已分离存储）。
+     */
+    val templateString: String = "",
     val visualOptions: VisualOptionsSnapshot = VisualOptionsSnapshot(),
 )
 

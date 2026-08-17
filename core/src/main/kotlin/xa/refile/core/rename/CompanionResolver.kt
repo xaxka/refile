@@ -53,13 +53,16 @@ class CompanionResolver(private val client: FileClient) {
                     decoded.trimEnd('/').substringAfterLast('/').takeIf { it.isNotEmpty() }
                 }
                 ?: continue
-            // 跳过主文件自身。
-            if (name == mainFileName) continue
+            // 跳过主文件自身（大小写不敏感：大小写不敏感服务器上 A.MKV 与 a.mkv 是同一文件）。
+            if (name.equals(mainFileName, ignoreCase = true)) continue
             // 仅保留伴随文件（字幕/nfo/图片）。
             if (!MediaFileTypes.isCompanion(name)) continue
             val base = baseNameWithoutExt(name) ?: continue
             // 仅保留与主文件同名（去扩展名）的伴随文件。
-            if (base != mainBase) continue
+            // P2 修复（报告 #12）：比较改为大小写不敏感。NAS/WebDAV 文件系统多为
+            // 大小写不敏感（或用户手动改名后大小写漂移），主文件 `A.mkv` 与伴随
+            // `a.srt` 此前因 `base != mainBase` 严格比较而漏匹配，导致伴随文件不重命名。
+            if (!base.equals(mainBase, ignoreCase = true)) continue
             val ext = rawExtension(name) ?: continue
             val compTarget = joinPath(targetDir, "$targetMainBase.$ext")
             companions.add(CompanionRename(sourcePath = joinPath(parentDir, name), targetPath = compTarget))

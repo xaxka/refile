@@ -799,8 +799,30 @@ class PreviewViewModel @Inject constructor(
             return null
         }
         return try {
+            // P0 修复：renderItem 渲染期不发现伴随文件（companions 硬编码为空，避免万级文件
+            // 万次请求），且 UI 展开时 loadCompanions 的结果只存于 Compose 局部状态、
+            // 未回写本 ViewModel——若直接用 item.companions 构造操作，字幕/nfo/图片永远不会
+            // 跟随主文件重命名。此处入队前对每个待执行项按需解析伴随文件（目录 PROPFIND
+            // 有缓存，同目录只发一次），并把结果回写 previewItems 供 UI 展示。
+            val resolved = coroutineScope {
+                val sem = Semaphore(8)
+                items.map { item ->
+                    async {
+                        sem.withPermit { item.sourcePath to loadCompanions(item) }
+                    }
+                }.awaitAll().toMap()
+            }
+            _uiState.update { s ->
+                s.copy(previewItems = s.previewItems.map { item ->
+                    if (item.status == PreviewStatus.AUTO) {
+                        item.copy(companions = resolved[item.sourcePath] ?: item.companions)
+                    } else {
+                        item
+                    }
+                })
+            }
             val ops = items.map {
-                RenameOperation(it.sourcePath, it.targetPath, it.companions, it.mediaType)
+                RenameOperation(it.sourcePath, it.targetPath, resolved[it.sourcePath] ?: emptyList(), it.mediaType)
             }
             workScheduler.enqueue(serverId, ops, batchName = "重命名 ${items.size} 项").toString()
         } catch (t: Throwable) {

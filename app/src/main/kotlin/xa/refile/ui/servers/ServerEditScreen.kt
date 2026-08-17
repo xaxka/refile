@@ -27,6 +27,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -153,6 +154,30 @@ fun ServerEditScreen(
                 },
                 modifier = Modifier.fillMaxWidth(),
             )
+            // P2 修复（报告 #13）：编辑模式且有已存密码时提供「清空密码」开关。
+            // 密码留空 = 保留原密码，勾选开关 = 保存时清除已存密码；输入新密码自动取消勾选。
+            if (uiState.isEditing && uiState.hasStoredPassword) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Switch(
+                        checked = uiState.clearPassword,
+                        onCheckedChange = { viewModel.toggleClearPassword() },
+                        enabled = uiState.password.isEmpty(),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        stringResource(R.string.server_edit_clear_password),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (uiState.password.isEmpty()) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                        },
+                    )
+                }
+            }
 
             Text(stringResource(R.string.server_edit_type), style = MaterialTheme.typography.bodyLarge)
             Row(

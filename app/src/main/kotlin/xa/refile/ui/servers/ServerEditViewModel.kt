@@ -51,6 +51,14 @@ class ServerEditViewModel @Inject constructor(
         val username: String = "",
         val password: String = "",
         val isEditing: Boolean = false,
+        /** 编辑模式下原实体是否存有密码（决定是否展示「清空密码」开关）。 */
+        val hasStoredPassword: Boolean = false,
+        /**
+         * P2 修复（报告 #13）：显式「清空已存密码」意图。此前密码留空一律保留原密文，
+         * 用户无法清除已存密码。勾选后保存时把 encryptedPassword 置 null。
+         * 输入新密码会自动取消该意图。
+         */
+        val clearPassword: Boolean = false,
         val isTesting: Boolean = false,
         val isSaving: Boolean = false,
         val testResult: TestResultUi? = null,
@@ -79,7 +87,20 @@ class ServerEditViewModel @Inject constructor(
     }
 
     fun updatePassword(value: String) {
-        _uiState.update { it.copy(password = value) }
+        // 输入新密码时自动取消「清空密码」意图（两者互斥，输入优先）。
+        _uiState.update {
+            it.copy(
+                password = value,
+                clearPassword = if (value.isNotEmpty()) false else it.clearPassword,
+            )
+        }
+    }
+
+    /** 切换「清空已存密码」开关（仅编辑模式且有已存密码时可切换）。 */
+    fun toggleClearPassword() {
+        _uiState.update {
+            if (it.isEditing && it.hasStoredPassword) it.copy(clearPassword = !it.clearPassword) else it
+        }
     }
 
     /** 编辑模式预填。id 为 null 或 <=0 视为新增。 */
@@ -103,15 +124,20 @@ class ServerEditViewModel @Inject constructor(
                 username = entity.username ?: "",
                 password = "", // 明文密码不回显（红线）
                 isEditing = true,
+                hasStoredPassword = !entity.encryptedPassword.isNullOrBlank(),
+                clearPassword = false,
             )
         }
     }
 
-    /** 构造用于"测试连接"的临时实体。密码用当前输入（加密后 round-trip），留空则沿用原密文。 */
+    /** 构造用于"测试连接"的临时实体。密码用当前输入（加密后 round-trip），留空则沿用原密文；
+     *  勾选「清空密码」则以无密码状态测试。 */
     private fun buildTempEntity(): ServerConfigEntity {
         val s = _uiState.value
         val (https, port, rootPath) = parseUrlExtras(s.baseUrl)
-        val encrypted = if (s.password.isNotEmpty()) {
+        val encrypted = if (s.clearPassword) {
+            null
+        } else if (s.password.isNotEmpty()) {
             crypto.encrypt(s.password)
         } else {
             loadedEntity?.encryptedPassword
@@ -182,7 +208,7 @@ class ServerEditViewModel @Inject constructor(
                     username = s.username.trim(),
                     https = https,
                 )
-                repo.updateServer(entity, newPassword)
+                repo.updateServer(entity, newPassword, clearPassword = s.clearPassword)
                 s.id
             } else {
                 repo.addServer(
