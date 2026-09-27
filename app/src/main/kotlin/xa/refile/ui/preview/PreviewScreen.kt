@@ -49,6 +49,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -170,14 +172,27 @@ fun PreviewScreen(
         }
     }
 
-    val snackbarHostState = remember { SnackbarHostState() }
+    // P2-2（审查报告 2026-09-25）：错误与信息通知分通道、分样式渲染——
+    // 此前信息性文案（如「已自动匹配 N 个其他剧集文件」）也走 error 通道，
+    // 以错误样式展示并触发错误专属的消费/清理逻辑，语义混淆。
+    val errorSnackbar = remember { SnackbarHostState() }
+    val noticeSnackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(state.error) {
         val err = state.error
         if (!err.isNullOrBlank()) {
-            snackbarHostState.showSnackbar(err)
+            errorSnackbar.showSnackbar(err)
             viewModel.clearError()
+        }
+    }
+
+    LaunchedEffect(state.notice) {
+        val n = state.notice
+        if (!n.isNullOrBlank()) {
+            // 信息通知：短时展示、普通样式（区别于错误通道的红色）
+            noticeSnackbar.showSnackbar(n, duration = SnackbarDuration.Short)
+            viewModel.clearNotice()
         }
     }
 
@@ -216,7 +231,19 @@ fun PreviewScreen(
                 },
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = {
+            // P2-2：错误（红色错误样式）与通知（默认样式）双通道各自渲染。
+            Column {
+                SnackbarHost(errorSnackbar) { data ->
+                    Snackbar(
+                        snackbarData = data,
+                        containerColor = ErrorRed,
+                        contentColor = Color.White,
+                    )
+                }
+                SnackbarHost(noticeSnackbar)
+            }
+        },
         bottomBar = {
             BottomActionBar(
                 executableCount = executableCount,

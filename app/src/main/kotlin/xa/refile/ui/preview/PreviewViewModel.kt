@@ -133,6 +133,12 @@ class PreviewViewModel @Inject constructor(
          * 防止重复提交入队多个并发重命名任务。
          */
         val enqueuing: Boolean = false,
+        /**
+         * P2-2（审查报告 2026-09-25）：信息性通知通道（如「已自动匹配 N 个其他剧集文件」）。
+         * 此前此类非错误文案写入 [error] 通道，UI 以错误样式（红色 Snackbar）展示并触发
+         * 错误专属的消费/清理逻辑，语义混淆。错误走 [error]，通知走 [notice] 分样式渲染。
+         */
+        val notice: String? = null,
     ) {
         /** 经当前 [filter] 过滤后的可见项（LazyColumn 渲染依据），按文件名排序。 */
         val activeItems: List<PreviewItem>
@@ -767,7 +773,10 @@ class PreviewViewModel @Inject constructor(
                 }
 
                 if (autoConfirmed.isNotEmpty()) {
-                    _uiState.update { it.copy(error = "已自动匹配 ${autoConfirmed.size} 个其他剧集文件") }
+                    // P2-2（审查报告 2026-09-25）：操作结果通知改走 notice 通道——
+                    // 此前写入 error 通道，UI 以错误样式（红色 Snackbar）展示，
+                    // 且触发错误专属的消费/清理逻辑，语义混淆。
+                    _uiState.update { it.copy(notice = "已自动匹配 ${autoConfirmed.size} 个其他剧集文件") }
                 }
 
                 detectConflicts()
@@ -896,6 +905,11 @@ class PreviewViewModel @Inject constructor(
     /** 清除一次性错误提示。 */
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    /** P2-2（审查报告 2026-09-25）：清除一次性信息通知（Snackbar 消费后调用）。 */
+    fun clearNotice() {
+        _uiState.update { it.copy(notice = null) }
     }
 
     // ---- Task 3.4：详情拉取委托给共享的 TmdbDetailFetcher（消除与 MatchViewModel 的重复代码） ----
