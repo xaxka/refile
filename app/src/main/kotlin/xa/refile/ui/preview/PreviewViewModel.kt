@@ -54,7 +54,8 @@ import javax.inject.Inject
  * 安全：密码仅在 [ServerRepository.clientFor] 内解密用于构造 client，绝不进入 UI 状态/日志。
  *
  * 依赖注入：[ServerRepository]/[SettingsRepository]/[PresetRepository]/[RenameWorkScheduler]
- * 均由 Hilt 提供；[CompanionResolver]/[TemplateEngine]/[BindingResolver] 为无状态/每项构造，不注入。
+ * 均由 Hilt 提供；[CompanionResolver]（P0-5 起为无状态 object）/[TemplateEngine]/[BindingResolver]
+ * 为无状态，直接调用/每项构造，不注入。
  */
 @HiltViewModel
 class PreviewViewModel @Inject constructor(
@@ -413,10 +414,13 @@ class PreviewViewModel @Inject constructor(
      * SubTask 1.1/1.6：按需发现伴随文件（字幕/nfo/图片等）。
      *
      * [renderItem] 移除网络请求后，伴随文件不在渲染期发现（避免万级文件万次请求）。
-     * UI 在用户展开某行「伴随文件」时调用本方法，用缓存的 [fileClient] 调
-     * [CompanionResolver.resolve] 返回伴随文件列表。
+     * UI 在用户展开某行「伴随文件」时调用本方法：用缓存的 [fileClient] PROPFIND 主文件
+     * 所在目录（P8 目录缓存，同目录只发一次），再把 entries 交给 core 的
+     * [CompanionResolver.resolve] 解析伴随文件列表。
      *
-     * P8 优化：缓存目录 PROPFIND 结果，同目录的多个主文件只发一次 PROPFIND。
+     * P0-5 修复（审查报告 2026-09-25 P0-5）：解析统一走 core 的 [CompanionResolver]，
+     * 删除本类私有副本 resolveCompanionsFromEntries——副本曾与 core 双实现漂移
+     * （大小写敏感比较、仅 `%20` 解码），core 的修复未在生效副本上生效。
      *
      * @return 伴随文件重命名列表；[fileClient] 为空或请求异常时返回空列表。
      */
@@ -431,41 +435,10 @@ class PreviewViewModel @Inject constructor(
                     synchronized(companionCacheLock) { companionPropfindCache[sourceDir] = fresh }
                     fresh
                 }
-            // 用缓存的 entries 手动解析伴随文件，避免 CompanionResolver 再次 PROPFIND。
-            resolveCompanionsFromEntries(item.sourcePath, item.targetPath, entries)
+            CompanionResolver.resolve(item.sourcePath, item.targetPath, entries)
         } catch (e: Exception) {
             emptyList()
         }
-    }
-
-    /**
-     * P8：从已缓存的 PROPFIND entries 解析伴随文件，不再次发 PROPFIND。
-     * 逻辑与 [CompanionResolver.resolve] 一致，但用传入的 entries 而非自行请求。
-     */
-    private fun resolveCompanionsFromEntries(
-        sourcePath: String,
-        targetPath: String,
-        entries: List<xa.refile.core.webdav.WebDavEntry>,
-    ): List<CompanionRename> {
-        val sourceBase = sourcePath.substringAfterLast('/').substringBeforeLast('.', "")
-        if (sourceBase.isEmpty()) return emptyList()
-        val sourceDir = sourcePath.substringBeforeLast('/', "/")
-        val targetDir = targetPath.substringBeforeLast('/', "/")
-        val targetBase = targetPath.substringAfterLast('/').substringBeforeLast('.', "")
-        return entries
-            .filterNot { it.isCollection }
-            .mapNotNull { entry ->
-                val displayName = entry.displayName?.takeIf { it.isNotEmpty() }
-                    ?: entry.href.trimEnd('/').substringAfterLast('/').replace("%20", " ")
-                if (!MediaFileTypes.isCompanion(displayName)) return@mapNotNull null
-                val entryBase = displayName.substringBeforeLast('.', "")
-                if (entryBase != sourceBase) return@mapNotNull null
-                val ext = displayName.substringAfterLast('.', "")
-                if (ext.isEmpty() || ext == displayName) return@mapNotNull null
-                val companionSource = if (sourceDir.endsWith("/")) "$sourceDir$displayName" else "$sourceDir/$displayName"
-                val companionTarget = if (targetDir.endsWith("/")) "$targetDir$targetBase.$ext" else "$targetDir/$targetBase.$ext"
-                CompanionRename(companionSource, companionTarget)
-            }
     }
 
     /**

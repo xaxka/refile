@@ -1,41 +1,43 @@
 package xa.refile.core.rename
 
-import xa.refile.core.webdav.FileClient
 import xa.refile.core.webdav.MediaFileTypes
+import xa.refile.core.webdav.WebDavEntry
 import java.net.URLDecoder
 
 /**
  * 伴随文件发现器（计划 §5.2 伴随文件规则）。
  *
- * 对主文件所在目录 PROPFIND Depth 1，找出与主文件同名（去扩展名）且为伴随文件
- * （字幕/nfo/图片，由 [MediaFileTypes.isCompanion] 判定）的文件，按 [targetPath]
- * 同目录、主文件目标名去扩展名 + 伴随文件原扩展名 生成伴随重命名目标。
+ * 对主文件所在目录的 PROPFIND Depth 1 结果（[WebDavEntry] 列表）找出与主文件同名
+ * （去扩展名）且为伴随文件（字幕/nfo/图片，由 [MediaFileTypes.isCompanion] 判定）的文件，
+ * 按 [targetPath] 同目录、主文件目标名去扩展名 + 伴随文件原扩展名生成伴随重命名目标。
  *
  * 例：主文件 `/Movies/a.mkv` → 目标 `/target/a.mkv`，发现同目录 `a.srt`/`a.nfo`
  * → 伴随重命名 `/Movies/a.srt`→`/target/a.srt`、`/Movies/a.nfo`→`/target/a.nfo`。
  *
- * 调用方（预览页）可调用本类自动发现伴随文件；若已自行解析，可直接在 [RenameOperation]
- * 中传入 [CompanionRename] 列表，无需经过本类。
+ * P0-5 修复（审查报告 2026-09-25 P0-5）：[resolve] 重构为纯函数——接收调用方已完成并
+ * 缓存的 PROPFIND [entries]（PROPFIND 请求由调用方负责，预览页 P8 的目录缓存即由此复用），
+ * 消除此前 app 层 PreviewViewModel 私有副本（resolveCompanionsFromEntries）与本实现的
+ * 双实现漂移——大小写敏感比较、仅 `%20` 解码两处缺陷曾只在 core 修复而未回流到实际生效的
+ * 副本。预览页与任何未来调用方共用本实现，不再各自复制。
+ *
+ * 调用方（预览页）自行 PROPFIND 后把 entries 传入；若需要伴随重命名列表填入
+ * [RenameOperation]，直接使用本类返回值即可。
  */
-class CompanionResolver(private val client: FileClient) {
+object CompanionResolver {
 
     /**
-     * 解析 [sourcePath] 主文件所在目录下的伴随文件并生成重命名目标。
+     * 从主文件所在目录的 PROPFIND entries 解析伴随文件并生成重命名目标。
      *
      * @param sourcePath 主文件源路径（如 `/Movies/a.mkv`）。
      * @param targetPath 主文件目标路径（如 `/target/a.mkv`）。
-     * @return 伴随重命名列表（不含主文件自身、不含非同名文件、不含非伴随文件）。
+     * @param entries    主文件所在目录 PROPFIND Depth 1 的结果（由调用方请求与缓存，
+     *                   可含目录自身与主文件，本方法内部会剔除）。
+     * @return 伴随重命名列表（不含主文件自身、不含非同名文件、不含非伴随文件、不含目录）。
      */
-    suspend fun resolve(sourcePath: String, targetPath: String): List<CompanionRename> {
+    fun resolve(sourcePath: String, targetPath: String, entries: List<WebDavEntry>): List<CompanionRename> {
         val mainFileName = fileNameOf(sourcePath)
         val mainBase = baseNameWithoutExt(mainFileName) ?: return emptyList()
         val parentDir = parentDirOf(sourcePath)
-
-        val entries = try {
-            client.propfind(parentDir, 1)
-        } catch (e: Exception) {
-            return emptyList()
-        }
 
         val targetDir = parentDirOf(targetPath)
         val targetMainBase = baseNameWithoutExt(fileNameOf(targetPath)) ?: mainBase
