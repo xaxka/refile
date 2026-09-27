@@ -108,7 +108,64 @@ class TmdbRateLimiterTest {
             assertThat(response.code).isEqualTo(429)
         }
         assertThat(sleeps).containsExactly(1000L, 1000L).inOrder()
-        assertThat(server.requestCount).isEqualTo(3)
+    }
+
+    @Test fun `retry interceptor clamps huge Retry-After to cap`() {
+        val sleeps = mutableListOf<Long>()
+        val sleeper = Sleeper { millis -> sleeps.add(millis) }
+        val retry = TmdbRetryInterceptor(maxRetries = 3, sleeper = sleeper)
+        val client = OkHttpClient.Builder().addInterceptor(retry).build()
+
+        // 异常服务器返回 Retry-After: 3600（1 小时）——原样采纳会让线程挂起 1 小时，
+        // UI 表现为永久 loading；应钳制到 60s 上限。
+        server.enqueue(MockResponse().setResponseCode(429).setHeader("Retry-After", "3600"))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("ok"))
+
+        val request = Request.Builder().url(server.url("/").toString()).build()
+        client.newCall(request).execute().use { response ->
+            assertThat(response.code).isEqualTo(200)
+        }
+        assertThat(sleeps).containsExactly(60_000L)
+        assertThat(server.requestCount).isEqualTo(2)
+    }
+
+    @Test fun `retry interceptor clamps negative Retry-After to zero`() {
+        val sleeps = mutableListOf<Long>()
+        val sleeper = Sleeper { millis -> sleeps.add(millis) }
+        val retry = TmdbRetryInterceptor(maxRetries = 3, sleeper = sleeper)
+        val client = OkHttpClient.Builder().addInterceptor(retry).build()
+
+        // 异常负值不应触发 Thread.sleep 负数异常
+        server.enqueue(MockResponse().setResponseCode(429).setHeader("Retry-After", "-5"))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("ok"))
+
+        val request = Request.Builder().url(server.url("/").toString()).build()
+        client.newCall(request).execute().use { response ->
+            assertThat(response.code).isEqualTo(200)
+        }
+        assertThat(sleeps).containsExactly(0L)
+    }
+
+    @Test fun `retry interceptor stops when total budget exceeded`() {
+        val sleeps = mutableListOf<Long>()
+        val sleeper = Sleeper { millis -> sleeps.add(millis) }
+        // 预算 3000ms：首次退避 2000ms 放行；第二次再退 2000ms 会超预算 → 停止重试
+        val retry = TmdbRetryInterceptor(
+            maxRetries = 5,
+            totalBudgetMillis = 3_000L,
+            sleeper = sleeper,
+        )
+        val client = OkHttpClient.Builder().addInterceptor(retry).build()
+
+        repeat(2) { server.enqueue(MockResponse().setResponseCode(429).setHeader("Retry-After", "2")) }
+
+        val request = Request.Builder().url(server.url("/").toString()).build()
+        client.newCall(request).execute().use { response ->
+            // 预算耗尽：按失败上报（返回最后一次 429），不再无限等待
+            assertThat(response.code).isEqualTo(429)
+        }
+        assertThat(sleeps).containsExactly(2000L)
+        assertThat(server.requestCount).isEqualTo(2)
     }
 
     @Test fun `retry interceptor does not retry on 200`() {

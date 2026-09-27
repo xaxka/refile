@@ -61,14 +61,25 @@ class TmdbRateLimitInterceptor(
  * 无该头则指数退避（1s, 2s, 4s）。最多重试 [maxRetries] 次。
  *
  * 也会处理 503（Service Unavailable）的 Retry-After。
+ *
+ * P2-1（审查报告 2026-09-25）：Retry-After 钳制 + 总重试预算。
+ * - 原样采纳服务器的 Retry-After 时，异常服务器（或反代配置错误）返回超大值
+ *   （如数小时）会让请求线程挂起，UI 表现为永久 loading。现钳制到
+ *   [maxRetryAfterMillis]（默认 60s），超出部分按上限退避——下轮请求会重新
+ *   感知实际限流状态，不会损失正确性。
+ * - 累计退避超过 [totalBudgetMillis]（默认 5 分钟）后停止重试，返回最后一次
+ *   429/503 响应由上层按失败上报，不再无限等待。
  */
 class TmdbRetryInterceptor(
     private val maxRetries: Int = 3,
+    private val maxRetryAfterMillis: Long = DEFAULT_MAX_RETRY_AFTER_MILLIS,
+    private val totalBudgetMillis: Long = DEFAULT_TOTAL_BUDGET_MILLIS,
     private val sleeper: Sleeper = RealSleeper,
 ) : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
         var attempt = 0
+        var totalSleptMillis = 0L
         while (true) {
             val response = chain.proceed(chain.request())
             if (response.code != 429 && response.code != 503) {
@@ -79,12 +90,19 @@ class TmdbRetryInterceptor(
             }
             val retryAfterSeconds = parseRetryAfter(response)
             val sleepMillis = if (retryAfterSeconds != null) {
-                TimeUnit.SECONDS.toMillis(retryAfterSeconds)
+                // P2-1：Retry-After 钳制到 [0, max]——防超大值挂起请求线程数小时，
+                // 也防异常负值触发 Thread.sleep(IllegalArgumentException)。
+                TimeUnit.SECONDS.toMillis(retryAfterSeconds).coerceIn(0, maxRetryAfterMillis)
             } else {
                 exponentialBackoffMillis(attempt)
             }
+            // P2-1：总重试预算——本次退避会超预算时停止重试，按失败上报。
+            if (totalSleptMillis + sleepMillis > totalBudgetMillis) {
+                return response
+            }
             response.close()
             sleeper.sleep(sleepMillis)
+            totalSleptMillis += sleepMillis
             attempt++
         }
     }
@@ -98,6 +116,14 @@ class TmdbRetryInterceptor(
     private fun exponentialBackoffMillis(attempt: Int): Long {
         // attempt 0 -> 1s, 1 -> 2s, 2 -> 4s, ...
         return TimeUnit.SECONDS.toMillis(1L shl attempt)
+    }
+
+    companion object {
+        /** P2-1：单次 Retry-After 退避上限（默认 60s）。 */
+        const val DEFAULT_MAX_RETRY_AFTER_MILLIS = 60_000L
+
+        /** P2-1：累计退避预算（默认 5 分钟），超限停止重试按失败上报。 */
+        const val DEFAULT_TOTAL_BUDGET_MILLIS = 300_000L
     }
 }
 
