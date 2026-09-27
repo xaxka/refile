@@ -199,6 +199,57 @@ class HistoryRepositoryTest {
         assertThat(result).isInstanceOf(RevertResult.Failure::class.java)
     }
 
+    // ---- P0-3（审查报告 2026-09-25）：撤销前服务器 baseUrl 指纹二次校验 ----
+
+    @Test
+    fun `revert blocked when server baseUrl differs from batch snapshot`() = runTest {
+        val dao = FakeDao().apply {
+            // 服务器 baseUrl = https://dav.example.com（newRepo 固定），批次快照指向另一台
+            batches += batch().copy(serverBaseUrl = "https://old.example.com/")
+            entries += entry(1, source = "/d/a.mkv", target = "/d/A (2024).mkv")
+        }
+        val client = FakeFileClient().apply { existing += "/d/A (2024).mkv" }
+        val repo = newRepo(dao, client)
+
+        val result = repo.revertBatch(1L)
+
+        assertThat(result).isInstanceOf(RevertResult.Failure::class.java)
+        assertThat((result as RevertResult.Failure).reason).contains("不一致")
+        // 指纹校验失败时不执行任何 MOVE（防误撤销到错误服务器）
+        assertThat(client.moveCalls).isEmpty()
+        assertThat(dao.batches[0].isReverted).isFalse()
+    }
+
+    @Test
+    fun `revert proceeds when baseUrl matches snapshot ignoring case and trailing slash`() = runTest {
+        val dao = FakeDao().apply {
+            batches += batch().copy(serverBaseUrl = "https://DAV.example.com/")
+            entries += entry(1, source = "/d/a.mkv", target = "/d/A (2024).mkv")
+        }
+        val client = FakeFileClient().apply { existing += "/d/A (2024).mkv" }
+        val repo = newRepo(dao, client)
+
+        val result = repo.revertBatch(1L)
+
+        assertThat(result).isInstanceOf(RevertResult.Success::class.java)
+        assertThat(dao.entries[0].status).isEqualTo("REVERTED")
+    }
+
+    @Test
+    fun `revert skips baseUrl check when legacy batch has blank snapshot`() = runTest {
+        val dao = FakeDao().apply {
+            // v5 及更早历史批次 serverBaseUrl 为空串 → 跳过指纹校验
+            batches += batch().copy(serverBaseUrl = "")
+            entries += entry(1, source = "/d/a.mkv", target = "/d/A (2024).mkv")
+        }
+        val client = FakeFileClient().apply { existing += "/d/A (2024).mkv" }
+        val repo = newRepo(dao, client)
+
+        val result = repo.revertBatch(1L)
+
+        assertThat(result).isInstanceOf(RevertResult.Success::class.java)
+    }
+
     // ---- 假实现 ----
 
     /** 内存版 [RenameBatchDao]：模拟 Room 读写语义（仅覆盖 revertBatch 用到的方法）。 */

@@ -191,7 +191,8 @@
     <string name="backup_hide_passphrase">隐藏口令</string>
     <string name="backup_show_passphrase">显示口令</string>
     <string name="backup_include_passwords">包含服务器密码</string>
-    <string name="backup_no_passphrase_warning">未设置口令将导出明文备份，且不含服务器密码。</string>
+    <!-- P0-2（审查报告 2026-09-25）：明示无口令导出不含敏感字段（服务器密码 + TMDB API Key）。 -->
+    <string name="backup_no_passphrase_warning">未设置口令将导出明文备份：不含服务器密码，也不含 TMDB API Key（恢复后需重新填写）。</string>
     <string name="backup_exporting">导出中…</string>
     <string name="backup_export">导出</string>
     <string name="backup_import_title">导入备份</string>

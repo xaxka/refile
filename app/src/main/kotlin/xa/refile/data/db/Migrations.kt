@@ -130,6 +130,21 @@ object Migrations {
         }
     }
 
+    /**
+     * v5 → v6（P0-3，审查报告 2026-09-25）：rename_batches 新增 serverBaseUrl 列。
+     *
+     * 存批次执行时的服务器 baseUrl 快照，撤销前据此做指纹二次校验（防止备份恢复/服务器
+     * 改动后历史批次反向 MOVE 到错误服务器）。旧行默认空串，撤销时空串跳过校验。
+     * 对齐 [RenameBatchEntity.serverBaseUrl] 的 `@ColumnInfo(defaultValue = "")`。
+     */
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE `rename_batches` ADD COLUMN `serverBaseUrl` TEXT NOT NULL DEFAULT ''",
+            )
+        }
+    }
+
     /** 全部已注册迁移，供 [xa.refile.data.DatabaseModule] 一次性 addMigrations。 */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
 }

@@ -1,6 +1,7 @@
 package xa.refile.data.backup
 
 import kotlinx.serialization.Serializable
+import xa.refile.data.db.ServerConfigEntity
 
 /**
  * 备份与恢复数据模型（计划 §M5 SubTask 5.2.1）。
@@ -122,13 +123,80 @@ sealed class ImportResult {
     data class Failure(val reason: String) : ImportResult()
 }
 
-/** 变更预览（Task 5.2.3）。描述导入将造成的差异。 */
+/**
+ * 服务器合并指纹（P0-3，审查报告 2026-09-25）。
+ *
+ * 备份恢复按指纹匹配合并已有服务器：命中的就地更新（保留原 id，历史
+ * rename_batches.serverId 引用不失效），未命中的新增插入。指纹取服务器的
+ * 协议身份五元组（type/baseUrl/port/https/username），与展示名 name 无关
+ * （name 可编辑，不代表服务器身份）。
+ */
+data class ServerFingerprint(
+    val type: String,
+    val baseUrl: String,
+    val port: Int?,
+    val https: Boolean,
+    val username: String?,
+) {
+    companion object {
+        /**
+         * 规范化构造：type/baseUrl 去首尾空白并小写、baseUrl 去末尾 `/`；
+         * username 去空白、空串归一为 null（匿名）。
+         */
+        fun of(
+            type: String,
+            baseUrl: String,
+            port: Int?,
+            https: Boolean,
+            username: String?,
+        ): ServerFingerprint = ServerFingerprint(
+            type = type.trim().lowercase(),
+            baseUrl = baseUrl.trim().trimEnd('/').lowercase(),
+            port = port,
+            https = https,
+            username = username?.trim()?.lowercase()?.takeIf { it.isNotEmpty() },
+        )
+    }
+}
+
+/** 单个服务器快照的合并动作：[matchedEntity] 非空 → 就地更新（保留 id）；null → 新增插入。 */
+data class ServerMergeAction(
+    val snapshot: ServerSnapshot,
+    val matchedEntity: ServerConfigEntity?,
+)
+
+/**
+ * 备份恢复的服务器合并计划（P0-3，审查报告 2026-09-25）。纯函数，便于单测。
+ *
+ * [existing] 为当前本地服务器列表，[snapshots] 为备份中的服务器快照列表；
+ * 返回与 snapshots 同序的动作列表。
+ */
+fun planServerMerge(
+    existing: List<ServerConfigEntity>,
+    snapshots: List<ServerSnapshot>,
+): List<ServerMergeAction> {
+    val byFingerprint = existing.associateBy {
+        ServerFingerprint.of(it.type, it.baseUrl, it.port, it.https, it.username)
+    }
+    return snapshots.map { snapshot ->
+        val fingerprint = ServerFingerprint.of(
+            snapshot.type,
+            snapshot.baseUrl,
+            snapshot.port,
+            snapshot.https,
+            snapshot.username,
+        )
+        ServerMergeAction(snapshot, byFingerprint[fingerprint])
+    }
+}
+
+/** 变更预览（Task 5.2.3）。描述导入将造成的差异（P0-3：按服务器指纹匹配统计）。 */
 data class ImportChanges(
-    /** 将新增的服务器数量（备份中存在、本地按 name 不存在的）。 */
+    /** 将新增的服务器数量（备份中存在、本地按指纹不存在的）。 */
     val newServers: Int,
-    /** 将覆盖的服务器数量（按 name 匹配已存在的）。 */
+    /** 将覆盖的服务器数量（按指纹匹配已存在，就地更新并保留 id）。 */
     val overwrittenServers: Int,
-    /** 将删除的本地服务器数量（备份中不存在、本地存在的）。 */
+    /** 将删除的本地服务器数量。P0-3 合并式导入不再删除本地服务器，恒为 0（保留字段兼容）。 */
     val removedServers: Int,
     /** 设置是否将发生变化（含模板串）。 */
     val settingsChanged: Boolean,

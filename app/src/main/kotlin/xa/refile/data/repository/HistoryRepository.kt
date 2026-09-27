@@ -89,12 +89,17 @@ class HistoryRepository @Inject constructor(
      * 从 [report].results 逐条映射为 [RenameEntryEntity]（status 取自 [RenameResult] 子类型），
      * 连同批次统计写入单事务。在 IO dispatcher 执行。
      *
+     * P0-3（审查报告 2026-09-25）：新增 [serverBaseUrl] 参数——记录批次执行时的服务器
+     * baseUrl 快照，供 [revertBatch] 撤销前做指纹二次校验（防止服务器改动/备份恢复后
+     * 反向 MOVE 到错误服务器）。
+     *
      * 调用方（[xa.refile.worker.RenameWorker]）应在执行成功后调用本方法。
      * 若记录失败被吞掉，不影响 Worker 的成功返回（历史为辅助功能）。
      */
     suspend fun recordBatch(
         serverId: Long,
         serverName: String,
+        serverBaseUrl: String = "",
         batchName: String?,
         report: RenameReport,
         @Suppress("UNUSED_PARAMETER") operations: List<RenameOperation>,
@@ -103,6 +108,7 @@ class HistoryRepository @Inject constructor(
         val batch = RenameBatchEntity(
             serverId = serverId,
             serverName = serverName,
+            serverBaseUrl = serverBaseUrl,
             batchName = batchName?.takeIf { it.isNotBlank() } ?: defaultBatchName(now),
             createdAt = now,
             totalOperations = report.total,
@@ -152,6 +158,19 @@ class HistoryRepository @Inject constructor(
 
         val server = serverRepository.getServer(batch.serverId)
             ?: return@withContext RevertResult.Failure("服务器已删除，无法撤销")
+
+        // P0-3③（审查报告 2026-09-25）：撤销前服务器指纹（baseUrl）二次校验。
+        // 批次记录了执行时的 baseUrl 快照；若当前服务器 baseUrl 与快照不一致（如备份恢复
+        // 错指、用户改指向了另一台服务器），反向 MOVE 会把文件搬去错误的服务器——直接阻止。
+        // v5 及更早的历史批次快照为空串，跳过校验（无快照可比）。
+        if (batch.serverBaseUrl.isNotBlank() &&
+            normalizeBaseUrl(batch.serverBaseUrl) != normalizeBaseUrl(server.baseUrl)
+        ) {
+            return@withContext RevertResult.Failure(
+                "服务器地址与批次执行时不一致（执行时 ${batch.serverBaseUrl}，当前 ${server.baseUrl}），" +
+                    "为防误撤销到错误服务器已阻止，请先核对服务器配置",
+            )
+        }
 
         // 按并发设置构造 client 并调整 OkHttp maxRequestsPerHost
         val concurrency = settings.concurrencyLimit.first()
@@ -269,6 +288,9 @@ class HistoryRepository @Inject constructor(
     }
 
     // ---- 内部工具 ----
+
+    /** baseUrl 规范化（指纹比较用）：去首尾空白、去末尾 `/`、统一小写。 */
+    private fun normalizeBaseUrl(url: String): String = url.trim().trimEnd('/').lowercase()
 
     /** 取 [RenameResult] 子类型对应的 status 字符串。 */
     private fun statusOf(result: RenameResult): String = when (result) {

@@ -27,13 +27,16 @@ import javax.inject.Singleton
  *
  * 职责：
  * - [export]：收集服务器/设置/模板构造 [BackupFile]；口令非空时整体 AES-GCM 加密。
+ *   P0-2（审查报告 2026-09-25）：未加密导出明文剔除 TMDB API Key，UI 明示警告。
  * - [import]：解析 + schema 校验 + 版本兼容性校验 + 解密（若加密），返回 [ImportResult.Preview]。
- * - [applyImport]：全量校验通过后落库（servers 全量替换、settings/templates 覆盖）。
+ * - [applyImport]：校验通过后落库（P0-3：servers 按指纹合并保留 ID、本地多余服务器保留；
+ *   settings/templates 覆盖）。
  *
  * 红线：历史与缓存不纳入备份；服务器密码默认置空，仅口令加密时才包含解密后的明文并整体加密。
  *
- * 注：servers 落库采用「清空再插入」简化策略（Task 5.2.3 允许），不做跨表事务回滚；
- * 解析/解密/版本校验失败均不触碰现有配置。
+ * 注：servers 落库为合并式策略（P0-3 修复：原「清空再插入」会让自增 id 变化，历史批次
+ * serverId 悬空/错指，撤销时可能反向 MOVE 到错误服务器）；解析/解密/版本校验失败均不
+ * 触碰现有配置。
  */
 @Singleton
 class BackupRepository @Inject constructor(
@@ -78,10 +81,14 @@ class BackupRepository @Inject constructor(
                 cipherText = b64(cipherText),
             )
         } else {
+            // P0-2 修复（审查报告 2026-09-25）：未加密导出的明文 JSON 剔除 TMDB API Key。
+            // SAF 导出的文件常落入下载目录或被网盘自动同步，明文凭据存在泄露风险；
+            // 服务器密码本就不含（仅口令加密时可选包含），此处仅设置中的 apiKey 需要剔除。
+            // UI 侧在导出面板明示警告（backup_no_passphrase_warning）。
             BackupFile(
                 exportedAt = now,
                 appVersion = APP_VERSION,
-                settings = payload.settings,
+                settings = payload.settings.copy(apiKey = ""),
                 servers = payload.servers,
             )
         }
@@ -140,35 +147,57 @@ class BackupRepository @Inject constructor(
     }
 
     /**
-     * 应用已预览的导入载荷：全量覆盖落库。
+     * 应用已预览的导入载荷：合并式落库。
      *
-     * 简化策略：servers 清空再插入（按 name 全量替换），settings/templates 直接覆盖。
-     * 落库前数据已在 [import] 阶段完成校验；此处的写操作为简单 CRUD，失败返回 [ApplyResult.Failure]。
+     * P0-3 修复（审查报告 2026-09-25）：servers 由「清空再插入（按 name 全量替换）」改为
+     * 按服务器指纹合并——命中的就地更新（保留原 id，历史 rename_batches.serverId 引用
+     * 不失效）；未命中的新增插入；本地多余的服务器保留不删除。原「清空再重插」会让自增
+     * id 变化（rowid 复用还可能错指到另一台服务器），恢复前产生的历史批次撤销时要么
+     * 「服务器已删除」、要么反向 MOVE 到错误服务器。
+     * settings/templates 覆盖（apiKey 为空串时保留本地值，见 P0-2 副作用防护）。
      */
     suspend fun applyImport(payload: BackupPayload): ApplyResult = try {
-        // 1) servers 全量替换：先删全部现有，再逐条插入（事务包裹，中途失败回滚避免丢数据）
+        // 1) servers 按指纹合并（事务包裹，中途失败回滚避免丢数据）
         db.withTransaction {
             // 事务内必须用一次性 suspend 查询而非 Flow 收集（observeServers().first()）：
             // Room 的 withTransaction 持写锁，Flow 查询等待读锁，可能死锁/ANR。
             val existing = serverRepository.getAllServers()
-            existing.forEach { serverRepository.deleteServer(it.id) }
-            payload.servers.forEach { snap ->
-                serverRepository.addServer(
-                    name = snap.name,
-                    baseUrl = snap.baseUrl,
-                    port = snap.port,
-                    rootPath = snap.rootPath,
-                    username = snap.username,
-                    password = snap.password.takeIf { it.isNotBlank() },
-                    type = snap.type,
-                    https = snap.https,
-                )
+            val mergePlan = planServerMerge(existing, payload.servers)
+            mergePlan.forEach { action ->
+                val matched = action.matchedEntity
+                if (matched != null) {
+                    // 指纹命中：就地更新（保留 id）——name/rootPath 等非指纹字段以备份为准，
+                    // 备份含明文密码（口令加密导出）时更新密码，否则保留本地已存密码。
+                    serverRepository.updateServer(
+                        matched.copy(
+                            name = action.snapshot.name,
+                            port = action.snapshot.port,
+                            rootPath = action.snapshot.rootPath,
+                            https = action.snapshot.https,
+                        ),
+                        newPassword = action.snapshot.password.takeIf { it.isNotBlank() },
+                    )
+                } else {
+                    serverRepository.addServer(
+                        name = action.snapshot.name,
+                        baseUrl = action.snapshot.baseUrl,
+                        port = action.snapshot.port,
+                        rootPath = action.snapshot.rootPath,
+                        username = action.snapshot.username,
+                        password = action.snapshot.password.takeIf { it.isNotBlank() },
+                        type = action.snapshot.type,
+                        https = action.snapshot.https,
+                    )
+                }
             }
         }
 
         // 2) settings 覆盖
         with(payload.settings) {
-            settings.setApiKey(apiKey)
+            // P0-2 副作用防护（审查报告 2026-09-25）：无口令导出的备份不含 apiKey
+            // （导出时已剔除为空串）；apiKey 为空串视为「备份中无此信息」，保留本地值，
+            // 避免「导出→恢复」一轮把本地 API Key 意外清空。加密备份不受影响。
+            if (apiKey.isNotBlank()) settings.setApiKey(apiKey)
             settings.setLanguage(language)
             settings.setPresetId(presetId)
             // 测试反馈 Item 9：电影/剧集模板分离备份恢复（兼容旧版空值）。
@@ -238,14 +267,14 @@ class BackupRepository @Inject constructor(
         )
     }
 
-    /** 构造变更预览：对比备份载荷与当前本地数据。 */
+    /** 构造变更预览：对比备份载荷与当前本地数据（P0-3：按服务器指纹而非 name 计数）。 */
     private suspend fun buildChanges(payload: BackupPayload): ImportChanges {
-        val current = serverRepository.observeServers().first()
-        val currentNames = current.map { it.name }.toSet()
-        val backupNames = payload.servers.map { it.name }.toSet()
-        val newServers = payload.servers.count { it.name !in currentNames }
-        val overwrittenServers = payload.servers.count { it.name in currentNames }
-        val removedServers = current.count { it.name !in backupNames }
+        val current = serverRepository.getAllServers()
+        val plan = planServerMerge(current, payload.servers)
+        val newServers = plan.count { it.matchedEntity == null }
+        val overwrittenServers = plan.count { it.matchedEntity != null }
+        // P0-3：合并式导入不删除本地多余服务器（保护历史 serverId 引用），删除数恒为 0。
+        val removedServers = 0
 
         val curSettings = SettingsSnapshot(
             apiKey = settings.apiKey.first(),

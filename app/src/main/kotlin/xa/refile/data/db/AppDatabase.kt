@@ -12,6 +12,8 @@ import androidx.room.RoomDatabase
  * v3 变更（Task 2.3.4）：新增 tmdb_cache 表（TMDB 详情响应缓存，减少限流压力）。
  * v4 变更：server_configs 新增 type 列（webdav / openlist），支持 OpenList 后端。
  * v5 变更：新增 pending_rename_batches 表，存储待执行操作 JSON（绕过 WorkData 10KB 上限）。
+ * v6 变更（P0-3，审查报告 2026-09-25）：rename_batches 新增 serverBaseUrl 列
+ * （批次执行时的服务器 baseUrl 快照，撤销前指纹二次校验用；旧行为空串跳过校验）。
  *
  * 迁移策略（Task 19）：正式 [androidx.room.migration.Migration]（v1→v2、v2→v3）注册在
  * [xa.refile.data.DatabaseModule]；release 走正式迁移不再清空用户数据，仅 debug 保留
@@ -27,7 +29,7 @@ import androidx.room.RoomDatabase
         TmdbCacheEntity::class,
         PendingRenameBatchEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

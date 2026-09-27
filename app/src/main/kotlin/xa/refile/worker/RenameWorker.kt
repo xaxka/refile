@@ -141,6 +141,8 @@ class RenameWorker @AssistedInject constructor(
             historyRepo.recordBatch(
                 serverId = serverId,
                 serverName = entity.name,
+                // P0-3（审查报告 2026-09-25）：记录执行时 baseUrl 快照，供撤销前指纹校验。
+                serverBaseUrl = entity.baseUrl,
                 batchName = batchName,
                 report = report,
                 operations = ops,
