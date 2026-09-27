@@ -278,8 +278,22 @@ class WebDavClient(
 sealed class ConnectionResult {
     /** 连接成功，附带 PROPFIND 解析到的根资源（可能为空）。 */
     data class Success(val entry: WebDavEntry? = null) : ConnectionResult()
-    /** 认证失败（401）。 */
-    data class AuthFailure(val code: Int = 401) : ConnectionResult()
+
+    /**
+     * 认证失败（401 / 登录被拒）。
+     *
+     * @property code     HTTP 或业务错误码。
+     * @property message  服务器返回的原始错误消息（可空；OpenList 登录失败时会带出）。
+     * @property needsOtp P0-1（审查报告 2026-09-25）：OpenList 开启两步验证时登录被拒且
+     *                    服务器提示需要/校验 OTP 码。调用方（服务器编辑页）据此弹出一次性
+     *                    OTP 输入框并带码重试（TOTP 一次性语义，不落库）。
+     */
+    data class AuthFailure(
+        val code: Int = 401,
+        val message: String? = null,
+        val needsOtp: Boolean = false,
+    ) : ConnectionResult()
+
     /** 非 WebDAV（PROPFIND 不被支持，405/501）。 */
     data class NotWebDav(val code: Int) : ConnectionResult()
     /** 其它 HTTP 错误。 */

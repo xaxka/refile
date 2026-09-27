@@ -112,9 +112,12 @@ class ServerRepository @Inject constructor(
      *
      * 复用 [clientFor] 构造 client，与实际重命名走同一套 client 构造逻辑，
      * 消除"连接测试失败但实际操作成功"的不一致。仅做连通性/认证探测，不下载文件内容。
+     *
+     * P0-1（审查报告 2026-09-25）：[otpCode] 为 OpenList 两步验证的一次性验证码
+     * （登录首次被拒提示需要 OTP 后，用户补码重试）。不落库。
      */
-    suspend fun testConnection(entity: ServerConfigEntity): ConnectionResult {
-        val client = clientFor(entity)
+    suspend fun testConnection(entity: ServerConfigEntity, otpCode: String? = null): ConnectionResult {
+        val client = clientFor(entity, otpCode = otpCode)
         return client.testConnection("/")
     }
 
@@ -125,10 +128,15 @@ class ServerRepository @Inject constructor(
      * 所有 server 共享同一个 [OkHttpClient]（OkHttp ConnectionPool 内部按 host 隔离）；
      * 传入 [maxRequestsPerHost] 时经 newBuilder() 派生带独立 Dispatcher 的 client
      * （共享连接池），仅影响本次返回的 client。
+     *
+     * P0-1（审查报告 2026-09-25）：新增 [otpCode] 参数——OpenList 开启两步验证时，
+     * 调用方（服务器编辑页）在登录失败提示「需要 OTP」后带一次性验证码重试构造。
+     * TOTP 一次性语义，不落库（[ServerConfigEntity] 不新增字段）。
      */
     suspend fun clientFor(
         entity: ServerConfigEntity,
         maxRequestsPerHost: Int? = null,
+        otpCode: String? = null,
     ): FileClient {
         // P2 修复：原实现直接改共享单例的 dispatcher.maxRequestsPerHost——全局生效且
         // 「粘住」：RenameWorker/HistoryRepository 按并发设置调用后，后续不带参数的调用
@@ -155,6 +163,7 @@ class ServerRepository @Inject constructor(
                 baseUrl = fullBaseUrl,
                 username = entity.username,
                 password = decryptedPassword,
+                otpCode = otpCode?.takeIf { it.isNotBlank() },
                 client = client,
             )
         } else {

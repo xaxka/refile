@@ -59,6 +59,14 @@ class ServerEditViewModel @Inject constructor(
          * 输入新密码会自动取消该意图。
          */
         val clearPassword: Boolean = false,
+        /**
+         * P0-1（审查报告 2026-09-25）：OpenList 两步验证（OTP）一次性验证码。
+         * 登录被拒且服务器提示需要 OTP 时置 [otpRequired]，UI 弹出输入框；
+         * 重试连接时透传给 [ServerRepository.testConnection]。TOTP 一次性语义，不落库。
+         */
+        val otpCode: String = "",
+        /** 是否需要展示 OTP 输入框（上次连接测试被 OpenList 要求两步验证码）。 */
+        val otpRequired: Boolean = false,
         val isTesting: Boolean = false,
         val isSaving: Boolean = false,
         val testResult: TestResultUi? = null,
@@ -75,7 +83,19 @@ class ServerEditViewModel @Inject constructor(
     }
 
     fun updateType(value: String) {
-        _uiState.update { it.copy(type = value) }
+        _uiState.update {
+            // P0-1：OTP 仅 OpenList 支持；切回 WebDAV 时重置一次性验证码状态。
+            if (value != "openlist") {
+                it.copy(type = value, otpCode = "", otpRequired = false)
+            } else {
+                it.copy(type = value)
+            }
+        }
+    }
+
+    /** P0-1（审查报告 2026-09-25）：更新 OpenList 两步验证一次性验证码输入。 */
+    fun updateOtpCode(value: String) {
+        _uiState.update { it.copy(otpCode = value) }
     }
 
     fun updateBaseUrl(value: String) {
@@ -159,8 +179,32 @@ class ServerEditViewModel @Inject constructor(
     fun testConnection() {
         viewModelScope.launch {
             _uiState.update { it.copy(isTesting = true, testResult = null) }
+            val state = _uiState.value
+            // P0-1（审查报告 2026-09-25）：OpenList 两步验证——带一次性 OTP 码重试。
+            // 仅 OpenList 类型透传；码为空（首测）则 null，由服务器提示是否需要 OTP。
+            val otp = if (state.type == "openlist") {
+                state.otpCode.takeIf { it.isNotBlank() }
+            } else {
+                null
+            }
             val mapped = try {
-                mapResult(repo.testConnection(buildTempEntity()))
+                val result = repo.testConnection(buildTempEntity(), otpCode = otp)
+                when {
+                    // 登录被拒且服务器提示需要两步验证码 → 打开一次性 OTP 输入框提示补码重试
+                    result is ConnectionResult.AuthFailure && result.needsOtp -> {
+                        _uiState.update { it.copy(otpRequired = true) }
+                        TestResultUi.Error(
+                            "需要两步验证码（OTP）：请在下方输入验证器动态码后重新测试连接",
+                        )
+                    }
+                    else -> {
+                        // 连接成功（含带 OTP 重试成功）后关闭 OTP 输入框
+                        if (result is ConnectionResult.Success) {
+                            _uiState.update { it.copy(otpRequired = false, otpCode = "") }
+                        }
+                        mapResult(result)
+                    }
+                }
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 TestResultUi.Error("网络错误：${t.message ?: "未知错误"}")
@@ -172,7 +216,11 @@ class ServerEditViewModel @Inject constructor(
     private fun mapResult(result: ConnectionResult): TestResultUi = when (result) {
         is ConnectionResult.Success -> TestResultUi.Success()
         is ConnectionResult.AuthFailure ->
-            TestResultUi.Error("认证失败（${result.code}），请检查用户名密码")
+            // P0-1：带出服务器原始消息（如 "wrong otp code"），便于区分密码错误与验证码错误
+            TestResultUi.Error(
+                "认证失败（${result.code}）" +
+                    (result.message?.takeIf { it.isNotBlank() }?.let { "：$it" } ?: "，请检查用户名密码"),
+            )
         is ConnectionResult.NotWebDav -> TestResultUi.Error("目标服务不可用或协议不匹配")
         is ConnectionResult.HttpError -> TestResultUi.Error("HTTP 错误 ${result.code}")
         is ConnectionResult.NetworkError -> TestResultUi.Error("网络错误：${result.message}")

@@ -469,6 +469,37 @@ class OpenListClientTest {
         assertThat(result).isInstanceOf(ConnectionResult.AuthFailure::class.java)
     }
 
+    // P0-1（审查报告 2026-09-25）：登录失败消息识别「需要 OTP」，带出原始消息供 UI 补码重试。
+    @Test fun `testConnection login failure with otp message returns AuthFailure needsOtp`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(400).setBody(
+            """{"code":400,"message":"otp code is empty","data":null}""",
+        ))
+        val result = newClient().testConnection("/")
+        val failure = result as ConnectionResult.AuthFailure
+        assertThat(failure.needsOtp).isTrue()
+        assertThat(failure.message).isEqualTo("otp code is empty")
+    }
+
+    @Test fun `testConnection login failure without otp message needsOtp false`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(400).setBody(
+            """{"code":400,"message":"wrong password","data":null}""",
+        ))
+        val result = newClient().testConnection("/")
+        val failure = result as ConnectionResult.AuthFailure
+        assertThat(failure.needsOtp).isFalse()
+        assertThat(failure.message).isEqualTo("wrong password")
+    }
+
+    @Test fun `testConnection login failure with wrong otp still reports needsOtp`() = runTest {
+        // 验证码填错（消息 "wrong otp code"）同样置 needsOtp：用户换下一个动态码重试即可
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"code":401,"message":"wrong otp code","data":null}""",
+        ))
+        val result = newClient(otp = "000000").testConnection("/")
+        val failure = result as ConnectionResult.AuthFailure
+        assertThat(failure.needsOtp).isTrue()
+    }
+
     @Test fun `testConnection list 401 returns AuthFailure`() = runTest {
         enqueueLogin()
         server.enqueue(MockResponse().setResponseCode(200).setBody(

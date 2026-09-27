@@ -154,6 +154,18 @@ fun ServerEditScreen(
                 },
                 modifier = Modifier.fillMaxWidth(),
             )
+            // P0-1（审查报告 2026-09-25）：OpenList 两步验证——登录被服务器要求 OTP 时展示
+            // 一次性验证码输入框，填码后重新「测试连接」带码重试（TOTP 一次性语义，不落库）。
+            if (uiState.type == "openlist" && uiState.otpRequired) {
+                OutlinedTextField(
+                    value = uiState.otpCode,
+                    onValueChange = viewModel::updateOtpCode,
+                    label = { Text(stringResource(R.string.server_edit_otp_code)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             // P2 修复（报告 #13）：编辑模式且有已存密码时提供「清空密码」开关。
             // 密码留空 = 保留原密码，勾选开关 = 保存时清除已存密码；输入新密码自动取消勾选。
             if (uiState.isEditing && uiState.hasStoredPassword) {

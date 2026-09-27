@@ -154,7 +154,10 @@ class OpenListClient internal constructor(
             callApi { api.list(FsListRequest(path = normalized)) }
             ConnectionResult.Success(selfEntry(normalized))
         } catch (e: OpenListAuthException) {
-            ConnectionResult.AuthFailure(e.code)
+            // P0-1（审查报告 2026-09-25）：带出服务器原始错误消息，并识别「需要 OTP」
+            // （OpenList 开启两步验证时登录被拒，消息如 "otp code is empty"/"wrong otp code"），
+            // 供服务器编辑页弹出一次性 OTP 输入框并带码重试。
+            ConnectionResult.AuthFailure(e.code, e.message, needsOtp = isOtpRequired(e.message))
         } catch (e: OpenListException) {
             // 401 一律经 [callApi] 转为 [OpenListAuthException] 在上一分支处理，此处仅剩非 401。
             when (e.code) {
@@ -398,6 +401,19 @@ class OpenListClient internal constructor(
         /** 确保 baseUrl 以 `/` 结尾（Retrofit 要求）。 */
         private fun ensureTrailingSlash(baseUrl: String): String =
             if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
+
+        /**
+         * 判定登录错误消息是否表示需要/校验两步验证码（P0-1，审查报告 2026-09-25）。
+         *
+         * OpenList/AList 开启 2FA 后登录端点返回的错误消息（英文 "otp code is empty"、
+         * "wrong otp code" 等，或本地化的「两步验证/动态密码」）。匹配关键词而非错误码：
+         * 不同版本对 2FA 错误的 HTTP/业务码不稳定（400/401 均有），消息是唯一稳定信号。
+         */
+        private fun isOtpRequired(message: String?): Boolean {
+            if (message.isNullOrBlank()) return false
+            val lower = message.lowercase()
+            return "otp" in lower || "两步验证" in message || "动态密码" in message
+        }
     }
 }
 
