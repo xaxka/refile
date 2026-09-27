@@ -157,8 +157,10 @@ class BrowserViewModel @Inject constructor(
                     }
                     return@launch
                 }
-                // 过滤掉返回的第一项（当前目录本身）。children 为空即空目录，属正常。
-                val children = raw.drop(1)
+                // P1-2（审查报告 2026-09-25）：按 href 匹配剔除目录自身（RFC 4918 不保证
+                // multistatus 首项是目录自身；drop(1) 在乱序/缺目录项的服务器上会丢弃
+                // 首个真实文件或把目录项混入列表）。children 为空即空目录，属正常。
+                val children = WebDavPathUtils.excludeSelfEntry(raw, normalized)
                 if (children.size > LARGE_DIR_THRESHOLD) {
                     Log.w(TAG, "Large directory detected: ${children.size} entries under '$normalized'")
                 }
@@ -363,8 +365,9 @@ class BrowserViewModel @Inject constructor(
             return
         }
         if (entries.isEmpty()) return
-        // 第一项通常为目录自身，跳过；遍历子项。
-        for (child in entries.drop(1)) {
+        // P1-2（审查报告 2026-09-25）：按 href 剔除目录自身（替代 drop(1)，
+        // 前提假设「首项=目录自身」在乱序/缺目录项的服务器上不成立）。
+        for (child in WebDavPathUtils.excludeSelfEntry(entries, dirPath)) {
             val childName = child.displayName ?: WebDavPathUtils.nameFromHref(child.href)
             if (child.isCollection) {
                 collectVideoFilesInDir(client, joinPath(dirPath, childName), out, depth + 1)

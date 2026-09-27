@@ -1,6 +1,7 @@
 package xa.refile.core.util
 
 import com.google.common.truth.Truth.assertThat
+import xa.refile.core.webdav.WebDavEntry
 import org.junit.Test
 
 /**
@@ -59,5 +60,88 @@ class WebDavPathUtilsTest {
     @Test
     fun `decodes chinese filename from mixed directory`() {
         assertThat(WebDavPathUtils.nameFromHref("/dav/%E4%B8%AD%E6%96%87.mkv")).isEqualTo("中文.mkv")
+    }
+
+    // ---- P1-2（审查报告 2026-09-25）：excludeSelfEntry 按 href 剔除目录自身 ----
+
+    private fun entry(href: String, name: String? = null, isCollection: Boolean = false) =
+        WebDavEntry(href = href, displayName = name, isCollection = isCollection)
+
+    @Test
+    fun `excludeSelfEntry with self first keeps all children`() {
+        val entries = listOf(
+            entry("/dav", "dav", isCollection = true),
+            entry("/dav/a.mkv", "a.mkv"),
+            entry("/dav/b.mkv", "b.mkv"),
+        )
+
+        val children = WebDavPathUtils.excludeSelfEntry(entries, "/dav")
+
+        assertThat(children.map { it.displayName }).containsExactly("a.mkv", "b.mkv").inOrder()
+    }
+
+    @Test
+    fun `excludeSelfEntry with self in middle keeps all children`() {
+        // RFC 4918 不保证响应顺序：目录项位于中间时旧 drop(1) 会把 a.mkv 静默丢弃
+        val entries = listOf(
+            entry("/dav/a.mkv", "a.mkv"),
+            entry("/dav", "dav", isCollection = true),
+            entry("/dav/b.mkv", "b.mkv"),
+        )
+
+        val children = WebDavPathUtils.excludeSelfEntry(entries, "/dav")
+
+        assertThat(children.map { it.displayName }).containsExactly("a.mkv", "b.mkv").inOrder()
+    }
+
+    @Test
+    fun `excludeSelfEntry with self last keeps all children`() {
+        val entries = listOf(
+            entry("/dav/a.mkv", "a.mkv"),
+            entry("/dav/b.mkv", "b.mkv"),
+            entry("/dav", "dav", isCollection = true),
+        )
+
+        val children = WebDavPathUtils.excludeSelfEntry(entries, "/dav")
+
+        assertThat(children.map { it.displayName }).containsExactly("a.mkv", "b.mkv").inOrder()
+    }
+
+    @Test
+    fun `excludeSelfEntry without self entry excludes nothing`() {
+        // 部分服务器不返回目录项：旧 drop(1) 会丢掉首个真实文件
+        val entries = listOf(
+            entry("/dav/a.mkv", "a.mkv"),
+            entry("/dav/b.mkv", "b.mkv"),
+        )
+
+        val children = WebDavPathUtils.excludeSelfEntry(entries, "/dav")
+
+        assertThat(children.map { it.displayName }).containsExactly("a.mkv", "b.mkv").inOrder()
+    }
+
+    @Test
+    fun `excludeSelfEntry tolerates trailing slash and percent encoding differences`() {
+        // 目录项 href 带末尾斜杠、子项含中文编码路径：解码+规范化后仍能正确匹配剔除
+        val entries = listOf(
+            entry("/dav/%E7%94%B5%E5%BD%B1/", "电影", isCollection = true),
+            entry("/dav/%E7%94%B5%E5%BD%B1.mkv", "电影.mkv"),
+        )
+
+        val children = WebDavPathUtils.excludeSelfEntry(entries, "/dav/电影")
+
+        assertThat(children.map { it.displayName }).containsExactly("电影.mkv")
+    }
+
+    @Test
+    fun `excludeSelfEntry at root matches root`() {
+        val entries = listOf(
+            entry("/", "/", isCollection = true),
+            entry("/Movies", "Movies", isCollection = true),
+        )
+
+        val children = WebDavPathUtils.excludeSelfEntry(entries, "/")
+
+        assertThat(children.map { it.displayName }).containsExactly("Movies")
     }
 }

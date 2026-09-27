@@ -1,5 +1,6 @@
 package xa.refile.core.util
 
+import xa.refile.core.webdav.WebDavEntry
 import java.net.URLDecoder
 
 /**
@@ -54,6 +55,23 @@ object WebDavPathUtils {
     fun nameFromHref(href: String): String {
         val decoded = runCatching { URLDecoder.decode(href, "UTF-8") }.getOrDefault(href)
         return decoded.trimEnd('/').substringAfterLast('/')
+    }
+
+    /**
+     * PROPFIND Depth 1 结果按 href 剔除目录自身（P1-2，审查报告 2026-09-25）。
+     *
+     * 旧实现直接 `drop(1)` 假设 multistatus 首项必是请求 URI 自身——RFC 4918 并不保证
+     * 响应顺序：部分服务器（某些 nginx-webdav、网关代理）不返回目录项或放在非首位，
+     * 前者会静默丢弃首个真实文件，后者会把目录项混入文件列表。
+     * 改为按 [requestedPath] 匹配剔除；匹配容错：末尾斜杠差异、百分号编码差异
+     * （entry.href 解码后比较）。服务器不返回目录项时一个都不剔除（保持全部子项）。
+     */
+    fun excludeSelfEntry(entries: List<WebDavEntry>, requestedPath: String): List<WebDavEntry> {
+        val selfKey = normalizePath(requestedPath)
+        return entries.filterNot { entry ->
+            val decoded = runCatching { URLDecoder.decode(entry.href, "UTF-8") }.getOrDefault(entry.href)
+            normalizePath(decoded) == selfKey
+        }
     }
 
     /** 在文件名扩展名前插入 ` (n)` 后缀：`/d/a.mkv` → `/d/a (1).mkv`。无扩展名则追加到末尾。 */
