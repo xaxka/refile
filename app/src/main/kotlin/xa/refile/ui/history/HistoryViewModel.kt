@@ -110,7 +110,10 @@ class HistoryViewModel @Inject constructor(
     fun revertResultMessage(result: RevertResult): String = when (result) {
         is RevertResult.Success -> "已回滚 ${result.rolledBack}/${result.total} 条"
         is RevertResult.Partial -> {
-            val head = "已回滚 ${result.rolledBack}/${result.total} 条，失败 ${result.failedEntries.size} 项"
+            // P0-4（审查报告 2026-09-25）：部分失败时批次保持可撤销，提示可重试
+            // （已回滚条目按 REVERTED 状态自动跳过，重试仅作用于失败条目）。
+            val head = "已回滚 ${result.rolledBack}/${result.total} 条，失败 ${result.failedEntries.size} 项；" +
+                "可再次撤销以重试失败项（已回滚条目自动跳过）"
             val tail = result.failedEntries.take(3).joinToString("\n") { "· ${it.targetPath.ifBlank { it.sourcePath }}" }
             if (tail.isBlank()) head else "$head\n$tail"
         }
@@ -123,11 +126,14 @@ class HistoryViewModel @Inject constructor(
         "PARTIAL" -> EntryStatus.PARTIAL
         "FAILED" -> EntryStatus.FAILED
         "SKIPPED" -> EntryStatus.SKIPPED
+
+        // P0-4（审查报告 2026-09-25）：条目级回滚状态——该条目已成功反向 MOVE。
+        "REVERTED" -> EntryStatus.REVERTED
         else -> EntryStatus.SKIPPED
     }
 
-    /** 条目状态枚举。 */
-    enum class EntryStatus { SUCCESS, PARTIAL, FAILED, SKIPPED }
+    /** 条目状态枚举。REVERTED（P0-4）表示该条目已回滚到源文件名。 */
+    enum class EntryStatus { SUCCESS, PARTIAL, FAILED, SKIPPED, REVERTED }
 
     /** 撤销进度快照。current=0 表示尚未开始首条；total=0 表示无需撤销（前置校验已拦截）。 */
     data class RevertProgress(val current: Int, val total: Int)

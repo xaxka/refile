@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.RemoveCircle
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -471,12 +472,16 @@ private fun statusIcon(status: EntryStatus, disabled: Boolean): Pair<ImageVector
         EntryStatus.PARTIAL -> WarningAmber
         EntryStatus.FAILED -> ErrorRed
         EntryStatus.SKIPPED -> TextSecondary
+
+        // P0-4（审查报告 2026-09-25）：条目已回滚到源文件名，中性色 + 回退图标。
+        EntryStatus.REVERTED -> TextSecondary
     }
     val icon = when (status) {
         EntryStatus.SUCCESS -> Icons.Filled.CheckCircle
         EntryStatus.PARTIAL -> Icons.Filled.Warning
         EntryStatus.FAILED -> Icons.Filled.RemoveCircle
         EntryStatus.SKIPPED -> Icons.Filled.SkipNext
+        EntryStatus.REVERTED -> Icons.Filled.Replay
     }
     return icon to color
 }

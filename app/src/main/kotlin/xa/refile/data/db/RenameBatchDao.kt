@@ -56,6 +56,15 @@ interface RenameBatchDao {
     @Query("UPDATE rename_batches SET isReverted = 1, revertedAt = :revertedAt WHERE id = :id")
     suspend fun markReverted(id: Long, revertedAt: Long)
 
+    /**
+     * 标记单条条目已回滚（status → 'REVERTED'）。
+     *
+     * P0-4（审查报告 2026-09-25）：撤销改为条目级回滚状态——已回滚条目在重试时按状态
+     * 跳过（幂等），部分失败不再整批标记 isReverted，「撤销整批」按钮即重试入口。
+     */
+    @Query("UPDATE rename_entries SET status = 'REVERTED' WHERE id = :id")
+    suspend fun markEntryReverted(id: Long)
+
     /** 删除某批次（外键 CASCADE 会连带删除其下条目）。 */
     @Query("DELETE FROM rename_batches WHERE id = :id")
     suspend fun deleteBatch(id: Long)

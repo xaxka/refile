@@ -1,6 +1,8 @@
 package xa.refile.data.repository
 
+import xa.refile.core.openlist.OpenListException
 import xa.refile.core.rename.CompanionRename
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -13,6 +15,8 @@ import kotlinx.coroutines.withContext
 import xa.refile.core.rename.RenameOperation
 import xa.refile.core.rename.RenameReport
 import xa.refile.core.rename.RenameResult
+import xa.refile.core.webdav.FileClient
+import xa.refile.core.webdav.WebDavException
 import xa.refile.data.db.RenameBatchDao
 import xa.refile.data.db.RenameBatchEntity
 import xa.refile.data.db.RenameEntryEntity
@@ -121,15 +125,19 @@ class HistoryRepository @Inject constructor(
     }
 
     /**
-     * 整批撤销（SubTask 5.1.4）。
+     * 整批撤销（SubTask 5.1.4；P0-4 修复：撤销可重入）。
      *
      * 流程：
      * 1. 取批次；不存在 → [RevertResult.Failure]。已撤销 → [RevertResult.Failure]（避免重复撤销）。
      * 2. 取服务器配置；已删除 → [RevertResult.Failure]（提示「服务器已删除」）。
      * 3. 取条目，按 id 倒序，仅对 status ∈ {SUCCESS, PARTIAL} 的条目执行反向 MOVE
-     *    （FAILED/SKIPPED 主文件未落地，无需撤销）。companions 同样反向 MOVE。
-     * 4. 中途失败不中断，记录到 [FailedEntry]。
-     * 5. 全部尝试完后标记 batch.isReverted=true, revertedAt=now。
+     *    （FAILED/SKIPPED 主文件未落地，无需撤销；[STATUS_REVERTED] 为 P0-4 新增的条目级
+     *    回滚状态，已回滚条目自动跳过——重试仅作用于失败条目且幂等）。companions 同样
+     *    反向 MOVE，失败计入本条目失败原因（P0-4②，不再静默吞掉）。
+     * 4. 中途失败不中断，记录到 [FailedEntry]；条目全部子项（主文件 + 全部伴随）成功后
+     *    落库条目级 [STATUS_REVERTED]。
+     * 5. P0-4①：仅当批次内不再有 SUCCESS/PARTIAL 条目（全部已回滚）才标记
+     *    batch.isReverted=true；部分失败保持批次可撤销，UI「撤销整批」按钮即重试入口。
      * 6. 返回 [RevertResult.Success] / [RevertResult.Partial]。
      */
     suspend fun revertBatch(
@@ -150,7 +158,7 @@ class HistoryRepository @Inject constructor(
         val client = serverRepository.clientFor(server, maxRequestsPerHost = concurrency)
         val entries = dao.getEntries(batchId).sortedByDescending { it.id }
 
-        // 仅需撤销「主文件已落地」的条目（SUCCESS / PARTIAL）。
+        // 仅需撤销「主文件已落地且尚未回滚」的条目（SUCCESS / PARTIAL；REVERTED 已跳过）。
         val toRevert = entries.filter { it.status == STATUS_SUCCESS || it.status == STATUS_PARTIAL }
         val total = toRevert.size
         if (total == 0) {
@@ -167,32 +175,37 @@ class HistoryRepository @Inject constructor(
                 async {
                     semaphore.withPermit {
                         // 先反向 companions（恢复伴随文件原名），再反向主文件。
-                        // overwrite=false：若反向目标已存在（不应发生），保留现状并记失败。
+                        // P0-4②：伴随反向 MOVE 失败计入本条目失败原因，不再静默吞掉
+                        // （此前伴随全失败但主文件成功时条目被当作完全回滚，字幕/nfo 留在目标名）。
                         val companions = CompanionJson.decode(entry.companionsJson)
+                        val compErrors = mutableListOf<String>()
                         for (comp in companions) {
-                            try {
-                                client.move(comp.targetPath, comp.sourcePath, overwrite = false)
-                            } catch (e: Exception) {
-                                if (e is kotlinx.coroutines.CancellationException) throw e
-                                // 伴随失败不计入 failed，由主文件结果统一决定本条目归类。
+                            if (!revertMove(client, comp.targetPath, comp.sourcePath)) {
+                                compErrors.add("伴随文件反向 MOVE 失败: ${comp.targetPath} -> ${comp.sourcePath}")
                             }
                         }
                         // 主文件反向 MOVE（即使部分 companion 失败仍尝试恢复主文件，尽量还原）。
-                        val mainOk = try {
-                            client.move(entry.targetPath, entry.sourcePath, overwrite = false)
-                        } catch (e: Exception) {
-                            if (e is kotlinx.coroutines.CancellationException) throw e
-                            false
-                        }
+                        val mainOk = revertMove(client, entry.targetPath, entry.sourcePath)
                         val done = progressCounter.incrementAndGet()
                         onProgress?.invoke(done, total)
-                        if (mainOk) {
+                        if (mainOk && compErrors.isEmpty()) {
+                            // P0-4③：条目级回滚状态落库；重试时按状态跳过已回滚条目。
+                            dao.markEntryReverted(entry.id)
                             null // 成功，不计入 failed
                         } else {
+                            val reason = buildString {
+                                if (!mainOk) {
+                                    append("主文件反向 MOVE 失败: ${entry.targetPath} -> ${entry.sourcePath}")
+                                }
+                                compErrors.forEach { err ->
+                                    if (isNotEmpty()) append("; ")
+                                    append(err)
+                                }
+                            }
                             FailedEntry(
                                 targetPath = entry.targetPath,
                                 sourcePath = entry.sourcePath,
-                                reason = "主文件反向 MOVE 失败: ${entry.targetPath} -> ${entry.sourcePath}",
+                                reason = reason,
                             )
                         }
                     }
@@ -203,7 +216,13 @@ class HistoryRepository @Inject constructor(
         val failed = results.filterNotNull()
         val rolledBack = total - failed.size
 
-        dao.markReverted(batchId, System.currentTimeMillis())
+        // P0-4①：仅当批次内不再有未回滚条目（SUCCESS/PARTIAL）才标记整批已撤销；
+        // 部分失败保持批次可撤销，「撤销整批」按钮即重试入口，重试只作用于剩余条目。
+        val remaining = dao.getEntries(batchId)
+            .count { it.status == STATUS_SUCCESS || it.status == STATUS_PARTIAL }
+        if (remaining == 0) {
+            dao.markReverted(batchId, System.currentTimeMillis())
+        }
         when {
             failed.isEmpty() -> RevertResult.Success(rolledBack = rolledBack, total = total)
             else -> RevertResult.Partial(
@@ -211,6 +230,41 @@ class HistoryRepository @Inject constructor(
                 total = total,
                 failedEntries = failed,
             )
+        }
+    }
+
+    /**
+     * 反向 MOVE + 幂等确认（P0-4③）。
+     *
+     * [FileClient.move] 失败仅返回 false，无法区分「真实失败」与「此前重试已回滚
+     * （move 源已不存在）」。move 失败后用 PROPFIND Depth 0 二次确认源路径：
+     * 已不存在 → 幂等视为已回滚返回 true；仍存在 → 真实失败。仅把明确的
+     * 「资源不存在」判定为已回滚（WebDAV 404 / OpenList object not found），
+     * 网络错误等不确定失败保持失败，宁可多重试一次也不误标。
+     */
+    private suspend fun revertMove(client: FileClient, fromPath: String, toPath: String): Boolean {
+        val moved = try {
+            client.move(fromPath, toPath, overwrite = false)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            false
+        }
+        if (moved) return true
+        return try {
+            client.propfind(fromPath, 0)
+            false // 源仍存在 → 真实失败
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: WebDavException) {
+            e.code == 404 // 源已不在（此前重试已回滚/已被删除）→ 幂等视为已回滚
+        } catch (e: OpenListException) {
+            // OpenList 对缺失对象常见 message：object not found / failed get object。
+            val msg = e.message.orEmpty()
+            msg.contains("not found", ignoreCase = true) ||
+                msg.contains("failed get object", ignoreCase = true)
+        } catch (e: Exception) {
+            false // 网络错误等无法判定 → 保持失败
         }
     }
 
@@ -245,6 +299,9 @@ class HistoryRepository @Inject constructor(
         const val STATUS_PARTIAL = "PARTIAL"
         const val STATUS_FAILED = "FAILED"
         const val STATUS_SKIPPED = "SKIPPED"
+
+        /** P0-4（审查报告 2026-09-25）：条目级回滚状态——该条目主文件与全部伴随已反向 MOVE 成功。 */
+        const val STATUS_REVERTED = "REVERTED"
     }
 }
 
