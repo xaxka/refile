@@ -117,6 +117,13 @@ class PreviewViewModel @Inject constructor(
         val previewItems: List<PreviewItem> = emptyList(),
         val filter: StatusFilter = StatusFilter.ALL,
         val error: String? = null,
+        /**
+         * P1-4（审查报告 2026-09-25）：伴随文件 PROPFIND/解析失败的项（sourcePath → 错误消息）。
+         * 此前失败静默返回空列表——用户看到的预览没有伴随文件，执行后字幕/nfo 未改名
+         * 且全程无提示。现写入该项可见的警告状态，预览行展示「伴随文件加载失败」，
+         * 由用户决定是否继续执行；重试成功后清除。
+         */
+        val companionErrors: Map<String, String> = emptyMap(),
     ) {
         /** 经当前 [filter] 过滤后的可见项（LazyColumn 渲染依据），按文件名排序。 */
         val activeItems: List<PreviewItem>
@@ -423,7 +430,8 @@ class PreviewViewModel @Inject constructor(
      * 删除本类私有副本 resolveCompanionsFromEntries——副本曾与 core 双实现漂移
      * （大小写敏感比较、仅 `%20` 解码），core 的修复未在生效副本上生效。
      *
-     * @return 伴随文件重命名列表；[fileClient] 为空或请求异常时返回空列表。
+     * @return 伴随文件重命名列表；[fileClient] 为空或请求异常时返回空列表
+     *   （异常时同时写入 [UiState.companionErrors] 供预览行展示，P1-4）。
      */
     suspend fun loadCompanions(item: PreviewItem): List<CompanionRename> {
         val client = fileClient ?: return emptyList()
@@ -436,8 +444,27 @@ class PreviewViewModel @Inject constructor(
                     synchronized(companionCacheLock) { companionPropfindCache[sourceDir] = fresh }
                     fresh
                 }
-            CompanionResolver.resolve(item.sourcePath, item.targetPath, entries)
+            val companions = CompanionResolver.resolve(item.sourcePath, item.targetPath, entries)
+            // P1-4②：成功后清除该项历史失败标记（如网络恢复后重试成功）。
+            _uiState.update { s ->
+                if (s.companionErrors.containsKey(item.sourcePath)) {
+                    s.copy(companionErrors = s.companionErrors - item.sourcePath)
+                } else {
+                    s
+                }
+            }
+            companions
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // P1-4①（审查报告 2026-09-25）：取消异常必须上抛（项目唯一遗漏点）——
+            // enqueueRename 在 coroutineScope + async 中调用本方法，用户取消/ViewModel
+            // 销毁时取消信号此前被吞，协程继续跑完整个 PROPFIND 循环。
+            throw e
         } catch (e: Exception) {
+            // P1-4②：解析失败不再静默——写入该项可见的警告状态（预览行展示
+            // 「伴随文件加载失败」），由用户决定是否继续执行。
+            _uiState.update { s ->
+                s.copy(companionErrors = s.companionErrors + (item.sourcePath to (e.message ?: e.javaClass.simpleName)))
+            }
             emptyList()
         }
     }

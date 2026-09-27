@@ -308,6 +308,8 @@ fun PreviewScreen(
                             items(state.activeItems, key = { it.sourcePath }) { item ->
                                 PreviewCard(
                                     item = item,
+                                    // P1-4（审查报告 2026-09-25）：伴随文件加载失败可见化（此前静默空列表）。
+                                    companionError = state.companionErrors[item.sourcePath],
                                     loadCompanions = { viewModel.loadCompanions(item) },
                                     onClick = { onEditMatch(item.sourcePath) },
                                     onConfirmCandidate = { c -> viewModel.confirmPending(item.sourcePath, c) },
@@ -512,6 +514,8 @@ private fun BottomActionBar(
 @Composable
 private fun PreviewCard(
     item: PreviewViewModel.PreviewItem,
+    /** P1-4（审查报告 2026-09-25）：伴随文件加载失败消息（null=正常）。 */
+    companionError: String?,
     loadCompanions: suspend () -> List<CompanionRename>,
     onClick: () -> Unit,
     onConfirmCandidate: (MatchCandidate) -> Unit,
@@ -670,6 +674,17 @@ private fun PreviewCard(
                 )
             }
         }
+        // P1-4（审查报告 2026-09-25）：伴随文件加载失败可见化——断网/服务器错误时
+        // 此前静默展示空列表，执行后字幕/nfo 未改名且全程无提示。现展示明确错误，
+        // 由用户决定是否继续执行（重试成功后该行消失）。
+        if (companionError != null) {
+            Text(
+                text = stringResource(R.string.preview_companion_load_failed, companionError),
+                style = MaterialTheme.typography.bodySmall,
+                color = ErrorRed,
+            )
+        }
+
         // 伴随文件
         AnimatedVisibility(visible = companionsExpanded && companions.isNotEmpty()) {
             Column {
