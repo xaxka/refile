@@ -26,7 +26,8 @@ import javax.inject.Inject
  * 设置中心 ViewModel（计划 §M5 Task 5.4）。
  *
  * 作为所有子设置功能的统一入口状态持有者：
- * - [apiKey] / [apiKeyValid]：TMDB API Key 及其校验状态（非空且长度 ≥ 32 视为有效）。
+ * - [apiKey] / [apiKeyValid]：TMDB API Key 及其校验状态（P1-3：v3 严格格式 32 位十六进制；
+ *   [apiKeyLooksLikeV4Token] 检测误粘贴的 v4 Read Access Token 供 UI 引导）。
  * - [language]：TMDB 请求语言偏好（如 `zh-CN`/`en-US`/`ja-JP`）。
  * - [availableLanguages]：可选语言列表（code → 显示名），供下拉选择。
  * - [presetId]：当前命名预设 ID，用于在「命名与模板」分组展示当前预设文案。
@@ -50,9 +51,17 @@ class SettingsViewModel @Inject constructor(
     val apiKey: StateFlow<String> = settings.apiKey
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), "")
 
-    /** API Key 是否有效：非空且长度 ≥ 32（TMDB v3 Key 固定 32 位）。 */
+    /**
+     * API Key 是否有效（P1-3，审查报告 2026-09-25）：
+     * v3 严格格式（32 位十六进制），v4 Token/长度达标但非 hex 的串均判无效。
+     */
     val apiKeyValid: StateFlow<Boolean> = settings.apiKey
-        .map { it.length >= TMDB_API_KEY_LENGTH }
+        .map { TmdbApiKeyValidator.isValidV3Key(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), false)
+
+    /** 是否误粘贴了 v4 API Read Access Token（eyJ…）：UI 据此给出 v3/v4 区别引导。 */
+    val apiKeyLooksLikeV4Token: StateFlow<Boolean> = settings.apiKey
+        .map { TmdbApiKeyValidator.looksLikeV4Token(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), false)
 
     /** TMDB 请求语言偏好，默认简体中文。 */
@@ -266,10 +275,31 @@ class SettingsViewModel @Inject constructor(
     }.getOrDefault("unknown")
 
     private companion object {
-        const val TMDB_API_KEY_LENGTH = 32
         const val DEFAULT_LANGUAGE = "zh-CN"
         const val DEFAULT_PRESET = "DEFAULT"
         const val DEFAULT_TRASH_DIR = ".trash"
         const val DEFAULT_CONCURRENCY_LIMIT = 5
     }
+}
+
+/**
+ * TMDB API Key 校验（P1-3，审查报告 2026-09-25）。
+ *
+ * 旧校验仅判 `length >= 32`：v4 "API Read Access Token"（eyJ 开头的 JWT，长度远超 32）
+ * 被误判为有效 Key，UI 显示「Key 已配置」，但客户端以 v3 `api_key` query 参数发送
+ * （[xa.refile.core.tmdb.TmdbRateLimiter]），所有请求 401——用户面对「Key 有效但全部
+ * 请求失败」的矛盾现象无从排查。
+ *
+ * 收紧为 v3 严格格式：32 位十六进制字符；并检测 v4 Token 给出针对性引导文案。
+ */
+object TmdbApiKeyValidator {
+
+    /** v3 API Key 格式：32 位十六进制（大小写均可，TMDB 官方 Key 固定此格式）。 */
+    private val V3_KEY_REGEX = Regex("^[0-9a-fA-F]{32}$")
+
+    /** 是否为合法的 v3 API Key。 */
+    fun isValidV3Key(key: String): Boolean = V3_KEY_REGEX.matches(key.trim())
+
+    /** 是否形似 v4 API Read Access Token（eyJ 开头的 JWT）——当前客户端不支持，给出引导。 */
+    fun looksLikeV4Token(key: String): Boolean = key.trim().startsWith("eyJ")
 }

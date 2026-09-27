@@ -175,6 +175,10 @@
     <string name="tmdb_config_show_key">显示 Key</string>
     <string name="tmdb_config_key_configured">Key 已配置</string>
     <string name="tmdb_config_key_not_configured">未配置</string>
+    <!-- P1-3（审查报告 2026-09-25）：v3 严格校验与 v4 Token 引导。 -->
+    <string name="tmdb_config_key_format_hint">需填 v3 API Key（32 位十六进制，TMDB 设置 → API 页）；eyJ 开头的 v4 Read Access Token 不可用</string>
+    <string name="tmdb_config_key_v4_token_rejected">这是 v4 API Read Access Token，本应用不支持：请改用 v3 API Key（TMDB 设置 → API 页 →「API Key」）</string>
+    <string name="tmdb_config_key_invalid_format">Key 格式错误：应为 32 位十六进制 v3 API Key</string>
     <string name="tmdb_config_language">语言偏好</string>
     <string name="tmdb_config_proxy">反代地址</string>
     <string name="tmdb_config_proxy_label">Cloudflare Workers 地址</string>

@@ -71,6 +71,7 @@ fun TmdbConfigScreen(
 ) {
     val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
     val apiKeyValid by viewModel.apiKeyValid.collectAsStateWithLifecycle()
+    val apiKeyLooksLikeV4Token by viewModel.apiKeyLooksLikeV4Token.collectAsStateWithLifecycle()
     val language by viewModel.language.collectAsStateWithLifecycle()
     val tmdbProxyUrl by viewModel.tmdbProxyUrl.collectAsStateWithLifecycle()
     val cacheCleared by viewModel.cacheCleared.collectAsStateWithLifecycle()
@@ -149,6 +150,8 @@ fun TmdbConfigScreen(
                         )
                     }
                 },
+                // P1-3（审查报告 2026-09-25）：明示 v3 Key 格式，防误粘贴 v4 Token。
+                supportingText = { Text(stringResource(R.string.tmdb_config_key_format_hint)) },
                 visualTransformation = if (showApiKey) {
                     VisualTransformation.None
                 } else {
@@ -158,6 +161,9 @@ fun TmdbConfigScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
+            // P1-3（审查报告 2026-09-25）：状态行三态——合法 v3 Key / v4 Token 误粘贴 /
+            // 非空但格式错误 / 未配置。v4 Token 被旧校验（length>=32）误判为有效，
+            // 但客户端以 v3 api_key 参数发送，实际全部请求 401。
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = if (apiKeyValid) Icons.Default.Check else Icons.Default.Close,
@@ -167,9 +173,18 @@ fun TmdbConfigScreen(
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = if (apiKeyValid) stringResource(R.string.tmdb_config_key_configured) else stringResource(R.string.tmdb_config_key_not_configured),
+                    text = when {
+                        apiKeyValid -> stringResource(R.string.tmdb_config_key_configured)
+                        apiKeyLooksLikeV4Token -> stringResource(R.string.tmdb_config_key_v4_token_rejected)
+                        apiKeyInput.isNotBlank() -> stringResource(R.string.tmdb_config_key_invalid_format)
+                        else -> stringResource(R.string.tmdb_config_key_not_configured)
+                    },
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (apiKeyValid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (apiKeyValid) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                 )
             }
 
