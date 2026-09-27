@@ -194,10 +194,26 @@ class PreviewViewModel @Inject constructor(
     // Task 14.1：冲突检测协程，快速连续触发时取消上一次，仅保留最后一次结果。
     private var detectJob: kotlinx.coroutines.Job? = null
 
-    // P8：目录 PROPFIND 缓存，避免 loadCompanions 对同目录发多次 PROPFIND。
-    // 在 load 时初始化，clearCompanionCache 在确认/取消时清理。
-    private val companionPropfindCache = mutableMapOf<String, List<xa.refile.core.webdav.WebDavEntry>>()
+    // P8 + P2-4（审查报告 2026-09-25）：目录 PROPFIND 缓存，避免 loadCompanions
+    // 对同目录发多次 PROPFIND。P2-4 修复两点：
+    // ① 短 TTL（60s）——此前缓存常驻 ViewModel 永不失效，用户在预览页停留期间
+    //   NAS 上新增/删除的伴随文件不会被发现；
+    // ② per-directory Mutex single-flight——此前 synchronized 包裹的 check-then-act
+    //   在挂起函数边界外，多个并发 async 同时缓存未命中时会重复对同一目录 PROPFIND
+    //   （结果幂等但浪费请求）。
+    private data class CachedPropfind(
+        val entries: List<xa.refile.core.webdav.WebDavEntry>,
+        val cachedAtMillis: Long,
+    )
+
+    private val companionPropfindCache = mutableMapOf<String, CachedPropfind>()
     private val companionCacheLock = Any()
+
+    /** P2-4②：按目录 key 的 single-flight Mutex（computeIfAbsent 原子获取）。 */
+    private val companionFetchMutexes = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+
+    /** P2-4①：目录 PROPFIND 缓存 TTL——超期后下次访问重新拉取，感知 NAS 变更。 */
+    private val companionCacheTtlMillis: Long = 60_000L
 
     // Task 3.4：渲染上下文快照，供 confirmPending 就地重渲染使用。
     private val _matches = MutableStateFlow<List<MatchViewModel.FileMatch>>(emptyList())
@@ -491,14 +507,9 @@ class PreviewViewModel @Inject constructor(
     suspend fun loadCompanions(item: PreviewItem): List<CompanionRename> {
         val client = fileClient ?: return emptyList()
         return try {
-            // P8：缓存目录 PROPFIND 结果，同目录的多个主文件只发一次 PROPFIND。
+            // P8 + P2-4：带 TTL 的目录 PROPFIND 缓存 + single-flight（见 [fetchEntriesCached]）。
             val sourceDir = parentDir(item.sourcePath)
-            val entries = synchronized(companionCacheLock) { companionPropfindCache[sourceDir] }
-                ?: run {
-                    val fresh = client.propfind(sourceDir, 1)
-                    synchronized(companionCacheLock) { companionPropfindCache[sourceDir] = fresh }
-                    fresh
-                }
+            val entries = fetchEntriesCached(client, sourceDir)
             val companions = CompanionResolver.resolve(item.sourcePath, item.targetPath, entries)
             // P1-4②：成功后清除该项历史失败标记（如网络恢复后重试成功）。
             _uiState.update { s ->
@@ -522,6 +533,50 @@ class PreviewViewModel @Inject constructor(
             }
             emptyList()
         }
+    }
+
+    /**
+     * P2-4（审查报告 2026-09-25）：带 TTL 的目录 PROPFIND 缓存 + per-directory single-flight。
+     *
+     * ① 命中未过期的缓存直接返回（TTL [companionCacheTtlMillis]，默认 60s）——
+     *   此前缓存常驻 ViewModel 永不失效，预览页停留期间 NAS 上的伴随文件变更
+     *   不会被感知；
+     * ② 未命中（或已过期）时按目录 Mutex 串行化：第一个协程发起 PROPFIND 并回填，
+     *   并发等待者持锁后二次检查缓存直接命中，不再重复请求同一目录
+     *   （旧的 check-then-act 在挂起边界外，去重不成立）。
+     */
+    private suspend fun fetchEntriesCached(
+        client: FileClient,
+        dir: String,
+    ): List<xa.refile.core.webdav.WebDavEntry> {
+        // P2-4①：先做无锁快路径——未过期缓存直接命中。
+        cachedEntriesIfFresh(dir)?.let { return it }
+        // P2-4②：single-flight——同目录并发未命中只发一次 PROPFIND。
+        val mutex = companionFetchMutexes.computeIfAbsent(dir) { Mutex() }
+        return mutex.withLock {
+            // 持锁二次检查：等待期间首个协程已回填缓存则直接命中。
+            val cached = cachedEntriesIfFresh(dir)
+            if (cached != null) return@withLock cached
+            val fresh = client.propfind(dir, 1)
+            synchronized(companionCacheLock) {
+                companionPropfindCache[dir] = CachedPropfind(fresh, System.currentTimeMillis())
+            }
+            fresh
+        }
+    }
+
+    /** P2-4①：返回未过期的缓存条目；缓存缺失或超过 TTL 返回 null。 */
+    private fun cachedEntriesIfFresh(dir: String): List<xa.refile.core.webdav.WebDavEntry>? {
+        val cached = synchronized(companionCacheLock) { companionPropfindCache[dir] } ?: return null
+        val fresh = System.currentTimeMillis() - cached.cachedAtMillis < companionCacheTtlMillis
+        return if (fresh) cached.entries else null
+    }
+
+    /**
+     * P2-4①（审查报告 2026-09-25）：手动失效入口——伴随缓存清理（供后续「刷新」类操作复用）。
+     */
+    fun clearCompanionCache() {
+        synchronized(companionCacheLock) { companionPropfindCache.clear() }
     }
 
     /**
