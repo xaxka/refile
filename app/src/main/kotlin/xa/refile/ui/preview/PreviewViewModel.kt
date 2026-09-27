@@ -14,6 +14,7 @@ import xa.refile.core.naming.TemplateEngine
 import xa.refile.core.parser.ParsedFilename
 import xa.refile.core.rename.CompanionRename
 import xa.refile.core.rename.CompanionResolver
+import xa.refile.core.rename.ConflictStrategy
 import xa.refile.core.rename.RenameOperation
 import xa.refile.core.util.WebDavPathUtils
 import xa.refile.core.webdav.FileClient
@@ -29,7 +30,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
@@ -124,6 +127,12 @@ class PreviewViewModel @Inject constructor(
          * 由用户决定是否继续执行；重试成功后清除。
          */
         val companionErrors: Map<String, String> = emptyMap(),
+        /**
+         * P1-7（审查报告 2026-09-25）：入队进行中标志（入队前逐目录 PROPFIND 解析
+         * 伴随文件，大目录可达数秒）。为 true 时「执行」按钮转 loading 并禁用，
+         * 防止重复提交入队多个并发重命名任务。
+         */
+        val enqueuing: Boolean = false,
     ) {
         /** 经当前 [filter] 过滤后的可见项（LazyColumn 渲染依据），按文件名排序。 */
         val activeItems: List<PreviewItem>
@@ -148,6 +157,14 @@ class PreviewViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
+
+    /** P1-7（审查报告 2026-09-25）：执行确认对话框所需的冲突策略状态。 */
+    val conflictStrategy: StateFlow<ConflictStrategy> = settings.conflictStrategy
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), ConflictStrategy.FAIL)
+
+    /** P1-7（审查报告 2026-09-25）：执行确认对话框所需的回收站目录（空串=未启用）。 */
+    val trashDir: StateFlow<String> = settings.trashDir
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), "")
 
     @Volatile
     private var fileClient: FileClient? = null
@@ -817,9 +834,15 @@ class PreviewViewModel @Inject constructor(
      * Task 3.5：待确认项不阻塞执行但被排除在执行列表外（仅入队 AUTO 项）。
      * 返回 workId（UUID 字符串）供 UI 导航到进度页；无可执行项或仍有冲突时返回 null 并写错误状态。
      * 本页不直接 MOVE/MKCOL（只预览不执行），实际执行由 [xa.refile.worker.RenameWorker] 完成。
+     *
+     * P1-7（审查报告 2026-09-25）：入队前逐目录 PROPFIND 解析伴随文件（大目录可达数秒），
+     * 期间 [UiState.enqueuing] 置 true（按钮 loading + 禁用防重复提交）；重复调用直接
+     * 返回 null。入队完成后无论成败均复位（finally）。
      */
     suspend fun enqueueRename(): String? {
         val state = _uiState.value
+        // P1-7②：入队进行中拒绝重复提交（防止并发入队多个重命名任务）。
+        if (state.enqueuing) return null
         if (state.conflictCount > 0) {
             _uiState.update { it.copy(error = "存在 ${state.conflictCount} 个冲突，请先解决") }
             return null
@@ -831,6 +854,8 @@ class PreviewViewModel @Inject constructor(
             _uiState.update { it.copy(error = "无可执行的重命名项") }
             return null
         }
+        // P1-7②：入队进行中（含逐目录 PROPFIND 解析伴随文件）置位，按钮禁用。
+        _uiState.update { it.copy(enqueuing = true) }
         return try {
             // P0 修复：renderItem 渲染期不发现伴随文件（companions 硬编码为空，避免万级文件
             // 万次请求），且 UI 展开时 loadCompanions 的结果只存于 Compose 局部状态、
@@ -862,6 +887,9 @@ class PreviewViewModel @Inject constructor(
             if (t is kotlinx.coroutines.CancellationException) throw t
             _uiState.update { it.copy(error = "入队失败：${t.message ?: "未知错误"}") }
             null
+        } finally {
+            // P1-7②：无论成败/取消均复位入队中标志，允许用户重试。
+            _uiState.update { it.copy(enqueuing = false) }
         }
     }
 

@@ -36,6 +36,7 @@ import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -77,6 +78,7 @@ import xa.refile.R
 import xa.refile.core.matcher.MatchCandidate
 import xa.refile.core.model.MediaType
 import xa.refile.core.rename.CompanionRename
+import xa.refile.core.rename.ConflictStrategy
 import xa.refile.ui.common.EmptyState
 import xa.refile.ui.match.MatchSessionViewModel
 import xa.refile.ui.match.MatchViewModel
@@ -125,6 +127,11 @@ fun PreviewScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val matchState by matchViewModel.uiState.collectAsStateWithLifecycle()
     val matchProgress = matchState.progress
+    // P1-7①（审查报告 2026-09-25）：执行确认对话框所需的策略/回收站状态。
+    val conflictStrategy by viewModel.conflictStrategy.collectAsStateWithLifecycle()
+    val trashDir by viewModel.trashDir.collectAsStateWithLifecycle()
+    // P1-7①：执行确认对话框显隐（点「执行」先弹确认，确认后才入队）。
+    var showExecuteConfirm by remember { mutableStateOf(false) }
 
     // 进入预览页时若会话 VM 还没匹配结果（matches 空）→ 启动匹配；
     // matches 非空时说明已匹配完成或从 EditMatch 回来 → 直接加载预览。
@@ -214,12 +221,11 @@ fun PreviewScreen(
             BottomActionBar(
                 executableCount = executableCount,
                 conflictBlocking = state.conflictCount > 0,
-                onExecute = {
-                    scope.launch {
-                        val id = viewModel.enqueueRename()
-                        if (id != null) onProceedToProgress(id)
-                    }
-                },
+                // P1-7②（审查报告 2026-09-25）：入队进行中按钮转 loading 并禁用，防重复提交。
+                enqueuing = state.enqueuing,
+                // P1-7①：执行前先弹确认对话框（列明项目数、冲突策略、回收站状态）——
+                // 批量远程重命名是破坏性最大的操作，却长期无任何确认，交互一致性倒挂。
+                onExecute = { showExecuteConfirm = true },
             )
         },
     ) { padding ->
@@ -321,6 +327,81 @@ fun PreviewScreen(
             }
         }
     }
+
+    // P1-7①（审查报告 2026-09-25）：执行确认对话框——批量远程重命名是本应用破坏性
+    // 最大的操作（改服务器上文件名），此前无任何确认（对比：撤销/删服务器都有确认）。
+    // 列明项目数、冲突策略、回收站开关状态，由用户显式确认后入队。
+    if (showExecuteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showExecuteConfirm = false },
+            title = { Text(stringResource(R.string.preview_execute_confirm_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = stringResource(R.string.preview_execute_confirm_text, executableCount),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = stringResource(
+                            R.string.preview_execute_confirm_strategy,
+                            conflictStrategyLabel(conflictStrategy),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = stringResource(
+                            R.string.preview_execute_confirm_trash,
+                            if (trashDir.isBlank()) {
+                                stringResource(R.string.preview_execute_confirm_trash_off)
+                            } else {
+                                stringResource(R.string.preview_execute_confirm_trash_on, trashDir)
+                            },
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showExecuteConfirm = false
+                        // 确认后入队（enqueuing 置位期间按钮禁用，P1-7②）。
+                        scope.launch {
+                            val id = viewModel.enqueueRename()
+                            if (id != null) onProceedToProgress(id)
+                        }
+                    },
+                    // 入队中不允许再次确认（P1-7②）。
+                    enabled = !state.enqueuing,
+                ) {
+                    if (state.enqueuing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text(stringResource(R.string.preview_execute_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showExecuteConfirm = false },
+                    enabled = !state.enqueuing,
+                ) { Text(stringResource(R.string.common_cancel)) }
+            },
+        )
+    }
+}
+
+/** P1-7①：冲突策略的用户可读标签。 */
+private fun conflictStrategyLabel(strategy: ConflictStrategy): String = when (strategy) {
+    ConflictStrategy.FAIL -> "存在冲突时中止"
+    ConflictStrategy.SKIP -> "存在冲突时跳过"
+    ConflictStrategy.INDEX -> "存在冲突时自动编号 (n)"
+    ConflictStrategy.OVERWRITE -> "存在冲突时覆盖"
 }
 
 /**
@@ -476,6 +557,8 @@ private fun FilterChipPill(
 private fun BottomActionBar(
     executableCount: Int,
     conflictBlocking: Boolean,
+    /** P1-7②（审查报告 2026-09-25）：入队进行中 → 按钮 loading 并禁用。 */
+    enqueuing: Boolean = false,
     onExecute: () -> Unit,
 ) {
     Row(
@@ -487,11 +570,21 @@ private fun BottomActionBar(
     ) {
         Button(
             onClick = onExecute,
-            enabled = !conflictBlocking && executableCount > 0,
+            enabled = !conflictBlocking && executableCount > 0 && !enqueuing,
             colors = ButtonDefaults.buttonColors(containerColor = AccentAmber),
         ) {
-            Icon(Icons.Outlined.PlayArrow, contentDescription = null)
-            Spacer(Modifier.width(6.dp))
+            if (enqueuing) {
+                // P1-7②：入队挂起期间（逐目录 PROPFIND 可达数秒）转 loading，防止重复提交
+                // 入队多个并发重命名任务（后续任务在源文件被移走后执行，产生失败记录污染历史）。
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                )
+                Spacer(Modifier.width(6.dp))
+            } else {
+                Icon(Icons.Outlined.PlayArrow, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+            }
             Text(stringResource(R.string.preview_execute, executableCount))
         }
     }

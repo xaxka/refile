@@ -87,6 +87,14 @@
     <string name="preview_filter_unmatched">未匹配 %1$d</string>
     <string name="preview_filter_conflict">冲突 %1$d</string>
     <string name="preview_execute">执行（%1$d）</string>
+    <!-- P1-7（审查报告 2026-09-25）：执行确认对话框。 -->
+    <string name="preview_execute_confirm">执行</string>
+    <string name="preview_execute_confirm_title">确认执行重命名？</string>
+    <string name="preview_execute_confirm_text">将对服务器上的 %1$d 个文件执行批量重命名（含伴随文件），此操作会直接修改远程文件名。</string>
+    <string name="preview_execute_confirm_strategy">冲突策略：%1$s</string>
+    <string name="preview_execute_confirm_trash">回收站：%1$s</string>
+    <string name="preview_execute_confirm_trash_on">已启用（%1$s）</string>
+    <string name="preview_execute_confirm_trash_off">未启用（失败项不进回收站）</string>
     <string name="preview_pending_hint">待确认 · 点击选择候选</string>
     <string name="preview_collapse">收起</string>
     <string name="preview_select_candidate">选择候选</string>

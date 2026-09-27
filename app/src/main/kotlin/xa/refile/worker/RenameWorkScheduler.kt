@@ -2,6 +2,7 @@ package xa.refile.worker
 
 import android.content.Context
 import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
@@ -12,7 +13,9 @@ import xa.refile.core.rename.RenameOperationJson
 import xa.refile.data.db.PendingRenameBatchDao
 import xa.refile.data.db.PendingRenameBatchEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
 
@@ -46,6 +49,19 @@ class RenameWorkScheduler @Inject constructor(
         operations: List<RenameOperation>,
         batchName: String? = null,
     ): UUID {
+        val wm = WorkManager.getInstance(context)
+        // P1-7③（审查报告 2026-09-25）：unique work 兜底防并发重放。
+        // 入队挂起期间（逐目录 PROPFIND 解析伴随文件可达数秒）重复点击会入队多个
+        // 并发任务（每次新 UUID 无去重），后续任务在源文件被移走后执行，产生大批
+        // 失败记录污染历史。同服务器已有未完成（排队中/进行中）的重命名任务时
+        // 不再重复入队，直接返回既有任务 id 供 UI 观察进度（KEEP 语义）。
+        // get() 阻塞查询挂到 IO（调用方可能在主线程协程）。
+        val existingUnfinished = withContext(Dispatchers.IO) {
+            wm.getWorkInfosForUniqueWork(uniqueName(serverId)).get()
+                .firstOrNull { !it.state.isFinished }
+        }
+        if (existingUnfinished != null) return existingUnfinished.id
+
         // 把操作列表 JSON 存入数据库，仅传 id 给 WorkData（绕过 10KB 限制）。
         val json = RenameOperationJson.encode(operations)
         val dbId = pendingDao.insert(PendingRenameBatchEntity(operationsJson = json))
@@ -62,9 +78,14 @@ class RenameWorkScheduler @Inject constructor(
             .setInputData(data)
             .setConstraints(constraints)
             .build()
-        WorkManager.getInstance(context).enqueue(work)
+        // P1-7③：unique work（按服务器隔离）+ KEEP：即使查询与入队之间出现并发竞争，
+        // 后到者也会被 KEEP 策略丢弃，同一服务器始终只有一个活跃重命名任务。
+        wm.enqueueUniqueWork(uniqueName(serverId), ExistingWorkPolicy.KEEP, work)
         return work.id
     }
+
+    /** P1-7③：unique work 名（按服务器隔离，同服务器串行防并发重放）。 */
+    private fun uniqueName(serverId: Long): String = "rename_$serverId"
 
     /**
      * 观察某 work id 的状态/进度（[WorkInfo] 含 state 与 progress WorkData）。
