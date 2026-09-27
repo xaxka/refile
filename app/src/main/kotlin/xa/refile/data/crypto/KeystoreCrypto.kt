@@ -54,10 +54,23 @@ class KeystoreCrypto(private val context: Context) {
     /**
      * 解密 [encrypt] 产出的密文，返回明文。
      *
+     * P2-3（审查报告 2026-09-25）：解密失败（设备迁移、系统密钥库重置或 ROM 更换后
+     * Keystore 密钥失效）统一抛 [KeystoreDecryptionException] 领域异常——底层技术异常
+     * （[java.security.spec.InvalidKeySpecException]/[javax.crypto.AEADBadTagException]
+     * 包装、Base64/载荷格式错误、密钥不存在等）用户无法理解，也不知道需要重新输入
+     * 各服务器密码；领域文案直接给出可行动指引。
+     *
      * @param encrypted `base64(iv || cipherText)` 形式的密文。
      * @return 明文密码。
+     * @throws KeystoreDecryptionException 存储密钥失效或密文损坏。
      */
-    fun decrypt(encrypted: String): String {
+    fun decrypt(encrypted: String): String = try {
+        decryptInternal(encrypted)
+    } catch (e: Exception) {
+        throw KeystoreDecryptionException(e)
+    }
+
+    private fun decryptInternal(encrypted: String): String {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         val key = keyStore.getKey(KEY_ALIAS, null)
             ?: throw NoSuchElementException("加密密钥不存在，可能因设备恢复或数据清除导致")
@@ -100,3 +113,18 @@ class KeystoreCrypto(private val context: Context) {
         private const val GCM_TAG_LENGTH_BITS = 128
     }
 }
+
+/**
+ * Keystore 解密失败的领域异常（P2-3，审查报告 2026-09-25）。
+ *
+ * 设备迁移、系统密钥库重置或 ROM 更换后 Keystore 密钥失效，已存密码全部解不开；
+ * 此前抛出的底层技术异常（AEADBadTagException 包装、密钥不存在等）用户无法理解，
+ * 也不知道需要重新输入各服务器密码。领域文案直接给出可行动指引，服务器列表页
+ * 据此对失效条目给出醒目标记。
+ *
+ * [cause] 保留原始异常供排查（绝不携带明文密码，红线）。
+ */
+class KeystoreDecryptionException(cause: Throwable) : Exception(
+    "存储密钥已失效，无法解密已保存的服务器密码；请在服务器编辑页重新输入密码",
+    cause,
+)

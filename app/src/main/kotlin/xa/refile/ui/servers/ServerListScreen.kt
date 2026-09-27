@@ -52,6 +52,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import xa.refile.R
 import xa.refile.data.db.ServerConfigEntity
+import xa.refile.ui.theme.ErrorRed
 
 /**
  * 服务器列表页（计划 §M1 SubTask 1.4.1，按测试反馈调整）。
@@ -74,6 +75,8 @@ fun ServerListScreen(
     viewModel: ServerListViewModel = hiltViewModel(),
 ) {
     val servers by viewModel.servers.collectAsStateWithLifecycle()
+    // P2-3（审查报告 2026-09-25）：Keystore 失效导致已存密码无法解密的条目 → 醒目标记。
+    val passwordLocked by viewModel.passwordUndecryptable.collectAsStateWithLifecycle()
     var pendingDeleteId by remember { mutableStateOf<Long?>(null) }
 
     Scaffold(
@@ -135,6 +138,8 @@ fun ServerListScreen(
                 items(servers, key = { it.id }) { server ->
                     ServerRow(
                         server = server,
+                        // P2-3：存储密钥失效（无法解密已存密码）醒目标记
+                        passwordLocked = server.id in passwordLocked,
                         onClick = { onOpenBrowser(server.id) },
                         onEdit = { onEditServer(server.id) },
                         onDelete = { pendingDeleteId = server.id },
@@ -179,6 +184,8 @@ fun ServerListScreen(
 @Composable
 private fun ServerRow(
     server: ServerConfigEntity,
+    /** P2-3（审查报告 2026-09-25）：存储密钥失效（无法解密已存密码）标记。 */
+    passwordLocked: Boolean = false,
     onClick: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -228,6 +235,16 @@ private fun ServerRow(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+                // P2-3（审查报告 2026-09-25）：Keystore 失效（设备迁移/ROM 更换后）解密失败
+                // 的醒目标记——提示用户到编辑页重新输入密码，否则连接全部认证失败。
+                if (passwordLocked) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(R.string.server_list_password_locked),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ErrorRed,
+                    )
+                }
             }
             // 长按触发同一菜单（无障碍/单手友好）
             Box {

@@ -108,6 +108,24 @@ class ServerRepository @Inject constructor(
     }
 
     /**
+     * P2-3（审查报告 2026-09-25）：探测服务器已存密码当前是否可解密（Keystore 是否失效）。
+     *
+     * 设备迁移/ROM 更换后 Keystore 密钥失效，已存密码全部解不开；服务器列表页据此
+     * 对失效条目给出醒目标记，提示用户到编辑页重新输入密码。仅做探测：解密结果
+     * 丢弃、不写日志（密码红线）；未存密码（null）视为正常（匿名/无密码服务器）。
+     * 调用方应确保不在主线程执行（Keystore IO）。
+     */
+    fun isPasswordDecryptable(entity: ServerConfigEntity): Boolean {
+        val encrypted = entity.encryptedPassword ?: return true
+        return try {
+            crypto.decrypt(encrypted)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
      * 测试与目标服务器的连通性。
      *
      * 复用 [clientFor] 构造 client，与实际重命名走同一套 client 构造逻辑，

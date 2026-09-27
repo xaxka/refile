@@ -20,6 +20,8 @@
 
     <!-- 服务器列表页 -->
     <string name="server_list_add_server">添加服务器</string>
+    <!-- P2-3（审查报告 2026-09-25）：Keystore 失效（无法解密已存密码）醒目标记。 -->
+    <string name="server_list_password_locked">存储密钥已失效，无法读取已存密码——请长按编辑并重新输入密码</string>
     <string name="server_list_empty">还没有服务器，点击右上角添加</string>
     <string name="server_list_delete_title">删除服务器</string>
     <string name="server_list_delete_confirm">确定删除该服务器配置吗？此操作不可撤销。</string>
