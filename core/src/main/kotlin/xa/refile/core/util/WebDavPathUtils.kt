@@ -1,10 +1,17 @@
 package xa.refile.core.util
 
+import java.net.URLDecoder
+
 /**
  * 通用 WebDAV 路径工具函数。
  *
  * 消除 PreviewViewModel / RenameExecutor / WebDavClient / BrowserViewModel 中
  * 重复的路径操作代码，统一维护。
+ *
+ * P1-1（审查报告 2026-09-25）：[nameFromHref] 此前仅替换 `%20`，中文（`%E4%B8%AD` 等）、
+ * `+`、`&` 等保留字符全部保持编码形态——文件列表显示 `%XX` 串且与已解码路径比较失败。
+ * 现改为完整 [URLDecoder] 解码（容错：非法转义回退原文），并为 app 层唯一实现
+ * （BrowserViewModel / PreviewViewModel 的私有同名副本已删除，统一复用本工具）。
  */
 object WebDavPathUtils {
 
@@ -36,9 +43,18 @@ object WebDavPathUtils {
     fun fileNameOf(path: String): String =
         path.trimEnd('/').substringAfterLast('/')
 
-    /** 从 WebDAV href 取末段并做最小 %20 解码（仅当 displayName 缺失时回退用）。 */
-    fun nameFromHref(href: String): String =
-        href.trimEnd('/').substringAfterLast('/').replace("%20", " ")
+    /**
+     * 从 WebDAV href 取末段文件名并完整解码（仅当 displayName 缺失时回退用）。
+     *
+     * P1-1（审查报告 2026-09-25）：href 是百分号编码路径，需先 [URLDecoder] 完整解码
+     * （覆盖中文/`+`/`&`/`%2B` 等，而非旧实现仅替换 `%20`）再取末段。
+     * `runCatching` 容错：个别服务器返回非法转义序列时回退原始 href，不抛异常。
+     * 注意先解码后取末段：编码串中的 `%2F` 解码为 `/` 会引入额外分隔。
+     */
+    fun nameFromHref(href: String): String {
+        val decoded = runCatching { URLDecoder.decode(href, "UTF-8") }.getOrDefault(href)
+        return decoded.trimEnd('/').substringAfterLast('/')
+    }
 
     /** 在文件名扩展名前插入 ` (n)` 后缀：`/d/a.mkv` → `/d/a (1).mkv`。无扩展名则追加到末尾。 */
     fun appendSuffix(path: String, n: Int): String {

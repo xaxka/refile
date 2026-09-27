@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import xa.refile.core.openlist.OpenListException
+import xa.refile.core.util.WebDavPathUtils
 import xa.refile.core.webdav.FileClient
 import xa.refile.core.webdav.MediaFileTypes
 import xa.refile.core.webdav.WebDavEntry
@@ -188,7 +189,7 @@ class BrowserViewModel @Inject constructor(
     /** 进入子目录。非目录忽略。 */
     fun navigateInto(entry: WebDavEntry) {
         if (!entry.isCollection) return
-        val name = entry.displayName ?: nameFromHref(entry.href)
+        val name = entry.displayName ?: WebDavPathUtils.nameFromHref(entry.href)
         loadDirectory(joinPath(_uiState.value.currentPath, name))
     }
 
@@ -364,7 +365,7 @@ class BrowserViewModel @Inject constructor(
         if (entries.isEmpty()) return
         // 第一项通常为目录自身，跳过；遍历子项。
         for (child in entries.drop(1)) {
-            val childName = child.displayName ?: nameFromHref(child.href)
+            val childName = child.displayName ?: WebDavPathUtils.nameFromHref(child.href)
             if (child.isCollection) {
                 collectVideoFilesInDir(client, joinPath(dirPath, childName), out, depth + 1)
             } else if (MediaFileTypes.isSelectableVideo(childName)) {
@@ -381,8 +382,8 @@ class BrowserViewModel @Inject constructor(
     /** 当前列表中可勾选项（目录 + 视频）的完整路径集合。 */
     private fun currentSelectablePaths(s: UiState): List<String> =
         s.entries
-            .filter { isSelectable(it.displayName ?: nameFromHref(it.href), it.isCollection) }
-            .map { joinPath(s.currentPath, it.displayName ?: nameFromHref(it.href)) }
+            .filter { isSelectable(it.displayName ?: WebDavPathUtils.nameFromHref(it.href), it.isCollection) }
+            .map { joinPath(s.currentPath, it.displayName ?: WebDavPathUtils.nameFromHref(it.href)) }
 
     /**
      * 排序：目录始终排在文件前；组内按 [field] 比较，升/降序。
@@ -483,6 +484,6 @@ internal fun breadcrumbs(current: String, root: String): List<Pair<String, Strin
 /** 从完整路径取末段文件名。 */
 internal fun fileNameOf(path: String): String = path.trimEnd('/').substringAfterLast('/')
 
-/** 从 WebDAV href 取末段并做最小 %20 解码（仅当 displayName 缺失时回退用）。 */
-internal fun nameFromHref(href: String): String =
-    href.trimEnd('/').substringAfterLast('/').replace("%20", " ")
+// P1-1（审查报告 2026-09-25）：原此处有 nameFromHref 私有副本（仅替换 %20），
+// 与 core/util/WebDavPathUtils.nameFromHref 双实现漂移——中文/`+`/`&` 等编码不解码，
+// 文件列表显示 %XX 串。已删除，统一复用 core 工具（完整 URLDecoder 解码）。

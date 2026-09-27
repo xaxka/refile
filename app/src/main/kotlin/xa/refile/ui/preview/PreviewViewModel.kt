@@ -15,6 +15,7 @@ import xa.refile.core.parser.ParsedFilename
 import xa.refile.core.rename.CompanionRename
 import xa.refile.core.rename.CompanionResolver
 import xa.refile.core.rename.RenameOperation
+import xa.refile.core.util.WebDavPathUtils
 import xa.refile.core.webdav.FileClient
 import xa.refile.core.webdav.MediaFileTypes
 import xa.refile.data.prefs.SettingsRepository
@@ -476,7 +477,7 @@ class PreviewViewModel @Inject constructor(
                                 .filterNot { it.isCollection }
                                 .mapNotNull { entry ->
                                     entry.displayName?.takeIf { n -> n.isNotEmpty() }
-                                        ?: nameFromHref(entry.href)
+                                        ?: WebDavPathUtils.nameFromHref(entry.href)
                                 }
                                 .toSet()
                         }
@@ -565,7 +566,7 @@ class PreviewViewModel @Inject constructor(
                                         .filterNot { it.isCollection }
                                         .mapNotNull { entry ->
                                             entry.displayName?.takeIf { n -> n.isNotEmpty() }
-                                                ?: nameFromHref(entry.href)
+                                                ?: WebDavPathUtils.nameFromHref(entry.href)
                                         }
                                         .toMutableSet()
                                     mutex.withLock { existingNames[dir] = names }
@@ -847,9 +848,8 @@ class PreviewViewModel @Inject constructor(
     /** 取路径末段文件名。 */
     private fun fileNameOf(path: String): String = path.trimEnd('/').substringAfterLast('/')
 
-    /** 从 WebDAV href 取末段并做最小 %20 解码（仅当 displayName 缺失时回退用）。 */
-    private fun nameFromHref(href: String): String =
-        href.trimEnd('/').substringAfterLast('/').replace("%20", " ")
+    // P1-1（审查报告 2026-09-25）：原此处有 nameFromHref 私有副本（仅替换 %20），已删除，
+    // 统一复用 core/util/WebDavPathUtils.nameFromHref（完整 URLDecoder 解码）。
 
     /** 在文件名扩展名前插入 ` (n)` 后缀：`/d/a.mkv` → `/d/a (1).mkv`。无扩展名则追加到末尾。 */
     private fun appendSuffix(path: String, n: Int): String {

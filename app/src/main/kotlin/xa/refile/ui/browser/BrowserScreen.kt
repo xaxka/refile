@@ -77,6 +77,7 @@ import kotlinx.coroutines.launch
 import xa.refile.R
 import xa.refile.core.webdav.MediaFileTypes
 import xa.refile.core.webdav.WebDavEntry
+import xa.refile.core.util.WebDavPathUtils
 import xa.refile.ui.common.EmptyState
 import xa.refile.ui.match.MatchViewModel
 import xa.refile.ui.theme.AccentAmber
@@ -326,7 +327,7 @@ fun BrowserScreen(
                 else -> {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
                         items(state.entries, key = { it.href }) { entry ->
-                            val name = entry.displayName ?: nameFromHref(entry.href)
+                            val name = entry.displayName ?: WebDavPathUtils.nameFromHref(entry.href)
                             val fullPath = joinPath(state.currentPath, name)
                             BrowserEntryRow(
                                 modifier = Modifier.animateItem(),
