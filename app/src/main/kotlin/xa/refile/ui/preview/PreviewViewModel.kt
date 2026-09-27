@@ -158,6 +158,16 @@ class PreviewViewModel @Inject constructor(
     @Volatile
     private var initialized: Boolean = false
 
+    /**
+     * P1-5（审查报告 2026-09-25）：渲染管线代数计数。
+     *
+     * load/reload 未做调用串行化：前一次渲染仍在进行中时触发 reload，旧 job 完成后的
+     * 状态写回会覆盖新 job 已写入的 matches（或反之），UI 呈现旧数据且无提示，用户基于
+     * 过期目标路径执行重命名。每次 load/reload 触发时递增代数，协程写回状态前校验，
+     * 过期写回直接丢弃（预览列表始终与最后一次触发对应）。
+     */
+    private val renderGeneration = java.util.concurrent.atomic.AtomicLong(0)
+
     // Task 14.1：冲突检测协程，快速连续触发时取消上一次，仅保留最后一次结果。
     private var detectJob: kotlinx.coroutines.Job? = null
 
@@ -180,6 +190,9 @@ class PreviewViewModel @Inject constructor(
      *
      * 用 [initialized] 守卫，避免 [matches] 变化导致重复加载（Activity 作用域的 matches Flow
      * 可能在首次组合时先空后非空，触发两次 [load]）。
+     *
+     * P1-5（审查报告 2026-09-25）：写回状态前校验 [renderGeneration] 代数，
+     * 过期渲染（期间又有 load/reload 触发）的结果直接丢弃。
      */
     fun load(serverId: Long, matches: List<MatchViewModel.FileMatch>) {
         if (initialized) return
@@ -188,16 +201,22 @@ class PreviewViewModel @Inject constructor(
         this.serverId = serverId
         _matches.value = matches
         viewModelScope.launch {
+            // P1-5：本次渲染代数；后续任何 load/reload 触发都会使其过期。
+            val gen = renderGeneration.incrementAndGet()
             _uiState.update { it.copy(loading = true, error = null) }
             try {
                 val entity = serverRepo.getServer(serverId)
                 if (entity == null) {
                     // Task 3.1：服务器被删除导致 client 缺失，重置 initialized 允许后续重试，避免死锁。
-                    initialized = false
-                    _uiState.update { it.copy(loading = false, error = "未找到服务器配置") }
+                    if (renderGeneration.get() == gen) {
+                        initialized = false
+                        _uiState.update { it.copy(loading = false, error = "未找到服务器配置") }
+                    }
                     return@launch
                 }
                 val client = serverRepo.clientFor(entity)
+                // P1-5：过期渲染丢弃（client 已构造但状态写回由更新代数负责）。
+                if (renderGeneration.get() != gen) return@launch
                 fileClient = client
                 // baseUrl 已含路径，浏览/重命名根固定为 "/"（不再追加 entity.rootPath，
                 // 否则会把路径重复拼接）
@@ -229,10 +248,15 @@ class PreviewViewModel @Inject constructor(
                         }
                     }.awaitAll()
                 }
+                // P1-5：写回前校验代数——期间若又有 load/reload 触发（更新一代），
+                // 本次过期结果直接丢弃，避免旧 job 完成后覆盖新 job 已写入的 matches。
+                if (renderGeneration.get() != gen) return@launch
                 _uiState.update { it.copy(loading = false, previewItems = items) }
                 detectConflicts()
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
+                // P1-5：过期渲染的失败不覆盖更新渲染的状态（错误由更新代数负责）。
+                if (renderGeneration.get() != gen) return@launch
                 // Task 3.1：渲染前抛异常导致 client 缺失，重置 initialized 允许后续重试，避免死锁。
                 initialized = false
                 _uiState.update { it.copy(loading = false, error = "加载预览失败：${t.message ?: "未知错误"}") }
@@ -246,6 +270,9 @@ class PreviewViewModel @Inject constructor(
      * 复用 [load] 时缓存的渲染上下文（[renderRootPath]/[renderPreset]/
      * [renderToday] 等）与 [fileClient] 重新 map 所有项，再 [detectConflicts]。
      * 若未 load 过（[fileClient] 或 [renderPreset] 为 null），回退到 [load]。
+     *
+     * P1-5（审查报告 2026-09-25）：与 [load] 共用 [renderGeneration] 代数——
+     * 前一次渲染未完成时触发本方法，旧 job 的过期写回被丢弃，避免竞态丢 matches。
      */
     fun reload(matches: List<MatchViewModel.FileMatch>) {
         _matches.value = matches
@@ -253,6 +280,8 @@ class PreviewViewModel @Inject constructor(
         val preset = renderPreset ?: return load(serverId, matches)
         val today = renderToday ?: return
         viewModelScope.launch {
+            // P1-5：本次重渲染代数；使其与进行中的旧渲染互斥（后完成者才允许写回）。
+            val gen = renderGeneration.incrementAndGet()
             _uiState.update { it.copy(loading = true, error = null) }
             try {
                 // SubTask 1.2：并发渲染（Semaphore(16) 限流）。
@@ -266,10 +295,13 @@ class PreviewViewModel @Inject constructor(
                         }
                     }.awaitAll()
                 }
+                // P1-5：写回前校验代数，过期结果直接丢弃（始终与最后一次触发对应）。
+                if (renderGeneration.get() != gen) return@launch
                 _uiState.update { it.copy(loading = false, previewItems = items) }
                 detectConflicts()
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
+                if (renderGeneration.get() != gen) return@launch
                 _uiState.update { it.copy(loading = false, error = "重新加载预览失败：${t.message ?: "未知错误"}") }
             }
         }
