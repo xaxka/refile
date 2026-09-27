@@ -458,7 +458,12 @@ class EditMatchViewModel @Inject constructor(
      * `seasonNumber / episodeNumbers / episodeTitles(多集 A & B) / episodeAirDates / seasonName`。
      *
      * [seasonNumber] 为 null（「全部季」）时遍历 [numberOfSeasons] 所有季查找包含所选集号的季，
-     * 找到后用该季详情合并；找不到则回退季号 1。对齐 [PreviewViewModel.fetchDetail] 的规则。
+     * 找到后用该季详情合并。对齐 [PreviewViewModel.fetchDetail] 的规则。
+     *
+     * P1-6（审查报告 2026-09-25）：找不到匹配季（numberOfSeasons 拉取失败 / 所有季
+     * 均不含该集号）时不再静默回退季号 1——此前元数据被写成 S01 而实际可能是
+     * S03 的集，重命名结果错误且用户无感知。现在抛出「无法确定所属季」错误，
+     * 保存被阻止（applyEdit 的 catch 写入 [UiState.error]），强制用户显式选季后重试。
      */
     private suspend fun buildEpisodeMetadata(
         tvId: Int,
@@ -471,8 +476,9 @@ class EditMatchViewModel @Inject constructor(
         val (resolvedSeason, season) = if (seasonNumber != null) {
             seasonNumber to runCatching { tmdbDetail.getSeason(tvId, seasonNumber, language) }.getOrNull()
         } else {
-            // 「全部季」：遍历所有季查找包含所选集号的季
+            // 「全部季」：遍历所有季查找包含所选集号的季；找不到则阻止保存（P1-6）。
             findSeasonContainingEpisodes(tvId, episodes, numberOfSeasons, language)
+                ?: throw IllegalStateException("无法确定所属季（集号 ${episodes.sorted()} 在已拉取的季中未找到或季数未知），请手动选择季号后重试")
         }
         val byNum = season?.episodes
             ?.filter { it.episodeNumber != null }
@@ -494,22 +500,25 @@ class EditMatchViewModel @Inject constructor(
      * 遍历 1..[numberOfSeasons] 查找包含 [episodes] 中集号的季。
      *
      * 每季 getSeason 用 runCatching 容错（某季不存在返回 null 跳过，不抛 404）。
-     * 找到第一个包含所有选中集号的季即返回；找不到则回退 (1, null)。
+     * 找到第一个包含所有选中集号的季即返回。
+     *
+     * P1-6（审查报告 2026-09-25）：找不到匹配季返回 null（调用方阻止保存），
+     * 不再静默兜底 `(1, null)` 写 S01。
      */
     private suspend fun findSeasonContainingEpisodes(
         tvId: Int,
         episodes: Set<Int>,
         numberOfSeasons: Int?,
         language: String,
-    ): Pair<Int, SeasonDetail?> {
-        val maxSeason = numberOfSeasons ?: return 1 to null
-        if (maxSeason <= 0 || episodes.isEmpty()) return 1 to null
+    ): Pair<Int, SeasonDetail?>? {
+        val maxSeason = numberOfSeasons ?: return null
+        if (maxSeason <= 0 || episodes.isEmpty()) return null
         for (s in 1..maxSeason) {
             val season = runCatching { tmdbDetail.getSeason(tvId, s, language) }.getOrNull() ?: continue
             val epNums = season.episodes.mapNotNull { it.episodeNumber }.toSet()
             if (episodes.all { it in epNums }) return s to season
         }
-        return 1 to null
+        return null
     }
 
     private fun Episode.toEpisodeInfo(): EpisodeInfo = EpisodeInfo(
