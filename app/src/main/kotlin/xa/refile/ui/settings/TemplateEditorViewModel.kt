@@ -211,11 +211,19 @@ class TemplateEditorViewModel @Inject constructor(
         return PreviewUi(
             movie = movie.path,
             episode = episode.path,
-            warnings = (movie.warnings + episode.warnings).distinct(),
+            // P2-7②（审查报告 2026-09-25）：warnings 按示例来源标注——此前两份示例的
+            // 告警混合去重后无法区分来源（电影模板的问题被误当成剧集模板的问题排查）。
+            warnings = (
+                movie.warnings.map { "[电影模板] $it" } +
+                    episode.warnings.map { "[剧集模板] $it" }
+                ).distinct(),
         )
     }
 
-    private companion object {
+    // P2-7①（审查报告 2026-09-25）：companion 从 private 改 internal——
+    // 一致性测试（TemplateEditorTokensConsistencyTest）需读取 VARIABLE_TOKENS，
+    // 与 core BindingResolver.SUPPORTED_TOKENS 断言一致，防止清单漂移。
+    internal companion object {
         /** 可插入变量（与 [BindingResolver] 已实现的绑定一一对应，按组分类）。 */
         val VARIABLE_TOKENS = listOf(
             // ---- 通用（电影 + 剧集）----

@@ -277,4 +277,41 @@ class BindingResolver(
         if (info.hearingImpaired) sb.append(".sdh")
         return sb.toString().ifBlank { null }
     }
+
+    companion object {
+        /**
+         * P2-7（审查报告 2026-09-25）：本解析器支持的顶级变量名注册表。
+         *
+         * 与 [resolve] 的 when 分支一一对应（按计划 §5.5 变量表 A–G 组），供模板
+         * 编辑器的变量清单做一致性测试——此前编辑器 token 列表纯手写，与实际绑定
+         * 无程序校验：core 新增绑定后编辑器不展示，或编辑器列出已被移除的绑定
+         * （历史上 `localize` 键名不一致就造成过预览与实渲染不符）。
+         *
+         * 注意：`info` / `localize` / `order` 是点路径前缀（需带子键才有意义，
+         * 编辑器以 `info.X` 等示例形式展示）；排除项（excluded）不在此列。
+         * 新增 when 分支时必须同步登记到本注册表（一致性测试会失败提醒）。
+         */
+        val SUPPORTED_TOKENS: Set<String> = setOf(
+            // A 组：通用对象标识
+            "n", "y", "ny", "id", "tmdbid", "imdbid", "tvdbid", "primaryTitle", "alias",
+            "object", "type", "episode", "series", "movie",
+            // B 组：剧集
+            "s", "e", "es", "sxe", "s00e00", "s00", "e00", "t", "d", "airdate", "startdate",
+            "absolute", "sn", "sy", "sc", "special", "regular", "anime", "episodelist", "episodes",
+            // C 组：元数据
+            "collection", "ci", "cy", "decade", "genre", "genres", "language", "languages",
+            "country", "runtime", "certification", "rating", "votes", "director", "actors",
+            // D 组：批次
+            "pi", "pc", "di", "dc", "i", "az",
+            // E 组：文件与路径
+            "fn", "ext", "f", "folder", "drive", "root", "files", "relativeFile",
+            "mediaFile", "mediaFileName", "original", "ct", "age", "bytes", "megabytes",
+            "gigabytes", "today",
+            // F 组：技术标签（文件名解析）
+            "vf", "vc", "ac", "cf", "vs", "source", "edition", "tags", "s3d", "hdr",
+            "dovi", "group", "lang", "subt",
+            // G 组：结构与点路径前缀
+            "info", "localize", "order", "self", "model",
+        )
+    }
 }
