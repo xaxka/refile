@@ -66,8 +66,8 @@ class TemplateEditorViewModel @Inject constructor(
         val warnings: List<String> = emptyList(),
     )
 
-    /** 固定示例上下文（电影 + 剧集），避免依赖实际选中文件。 */
-    private data class SampleContext(
+    /** 固定示例上下文（电影 + 剧集），避免依赖实际选中文件。P2-7：随 companion 改 internal。 */
+    internal data class SampleContext(
         val media: MediaMetadata,
         val file: FileContext,
         val batch: BatchContext,
