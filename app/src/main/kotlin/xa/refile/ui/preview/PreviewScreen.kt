@@ -61,6 +61,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -133,7 +134,8 @@ fun PreviewScreen(
     val conflictStrategy by viewModel.conflictStrategy.collectAsStateWithLifecycle()
     val trashDir by viewModel.trashDir.collectAsStateWithLifecycle()
     // P1-7①：执行确认对话框显隐（点「执行」先弹确认，确认后才入队）。
-    var showExecuteConfirm by remember { mutableStateOf(false) }
+    // P2-6：saveable 化，旋转屏幕时未决的确认框不消失。
+    var showExecuteConfirm by rememberSaveable { mutableStateOf(false) }
 
     // 进入预览页时若会话 VM 还没匹配结果（matches 空）→ 启动匹配；
     // matches 非空时说明已匹配完成或从 EditMatch 回来 → 直接加载预览。
@@ -658,7 +660,10 @@ private fun PreviewCard(
         PreviewViewModel.PreviewStatus.NEEDS_CONFIRM -> WarningAmber
         else -> AccentAmber
     }
-    var companionsExpanded by remember { mutableStateOf(false) }
+    // P2-6（审查报告 2026-09-25）：卡片展开态 rememberSaveable 化——此前旋转屏幕/
+    // 分屏切换后展开/收起回弹丢失，「我刚才展开的那张卡片找不到了」；LazyColumn
+    // 已按 item.sourcePath 为 key，saveable 状态随列表项位置正确恢复。
+    var companionsExpanded by rememberSaveable { mutableStateOf(false) }
     // B3: renderItem 把 companions 硬编码为 emptyList()（避免万级文件万次请求），
     // 伴随文件改由 loadCompanions 按需发现。用户首次展开伴随文件时触发一次加载，
     // 结果缓存到 loadedCompanions；card 重组（如展开/收起候选）不会重复请求。
@@ -669,7 +674,8 @@ private fun PreviewCard(
         }
     }
     val companions = loadedCompanions
-    var candidatesExpanded by remember { mutableStateOf(false) }
+    // P2-6：候选墙展开态同样 saveable 化（配置更改后保留）。
+    var candidatesExpanded by rememberSaveable { mutableStateOf(false) }
     val isPendingWithCandidates =
         item.status == PreviewViewModel.PreviewStatus.NEEDS_CONFIRM && item.candidates.isNotEmpty()
 
