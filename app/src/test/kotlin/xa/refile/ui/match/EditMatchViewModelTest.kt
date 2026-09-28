@@ -64,7 +64,7 @@ class EditMatchViewModelTest {
         val tmdbDetail = mockk<TmdbDetailRepository>()
         // numberOfSeasons 拉取失败场景：getTv 成功但无季数（默认 null），所有 getSeason 均 404。
         coEvery { tmdbDetail.getTv(any(), any()) } returns
-            MediaMetadata(type = MediaType.TV, tmdbId = 100, name = "Show")
+            MediaMetadata(type = MediaType.EPISODE, tmdbId = 100, name = "Show")
         coEvery { tmdbDetail.getSeason(any(), any(), any()) } throws RuntimeException("HTTP 404")
 
         val vm = newVm(tmdbDetail)
@@ -99,7 +99,7 @@ class EditMatchViewModelTest {
     fun `applyEdit succeeds when episodes fall back to explicit season`() = runTest {
         // 用户显式选季（seasonNumber=3）：即使 getSeason 失败也按用户选择落盘（旧行为不变）
         val tmdbDetail = mockk<TmdbDetailRepository>()
-        val tv = MediaMetadata(type = MediaType.TV, tmdbId = 100, name = "Show")
+        val tv = MediaMetadata(type = MediaType.EPISODE, tmdbId = 100, name = "Show")
         coEvery { tmdbDetail.getTv(any(), any()) } returns tv
         coEvery { tmdbDetail.getSeason(100, 3, any()) } throws RuntimeException("HTTP 404")
 

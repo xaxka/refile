@@ -51,7 +51,9 @@ class BackupRepositoryTest {
                     name = "NAS",
                     type = "webdav",
                     baseUrl = "https://dav.example.com",
-                    encryptedPassword = "cipher",
+                    // CI 修复：断言用特征值（不能用字面量 "cipher"——Json encodeDefaults=true
+                    // 会序列化 BackupFile.cipherText 字段名，误伤 doesNotContain 断言）
+                    encryptedPassword = "kEystOreC1pherSentinel",
                 ),
             ),
         )
@@ -63,8 +65,8 @@ class BackupRepositoryTest {
         val success = result as BackupResult.Success
         // P0-2：明文 JSON 不出现 API Key 的值（无论 includePasswords 与否——无口令导出恒剔除）
         assertThat(success.json).doesNotContain(secret)
-        // 服务器密码同样不出现（无口令导出不收集，encryptedPassword 密文也不导出）
-        assertThat(success.json).doesNotContain("cipher")
+        // Keystore 密文值同样不出现（无口令导出不导出密文——ServerSnapshot 无此字段）
+        assertThat(success.json).doesNotContain("kEystOreC1pherSentinel")
         // 结构仍是合法未加密备份，settings.apiKey 序列化为空（decode 后验证）
         assertThat(success.json).isNotEmpty()
         val json = Json { ignoreUnknownKeys = true }
